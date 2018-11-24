@@ -1,4 +1,0 @@
-better.egg-info/PKG-INFO
-better.egg-info/SOURCES.txt
-better.egg-info/dependency_links.txt
-better.egg-info/top_level.txt
