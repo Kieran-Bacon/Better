@@ -32,3 +32,8 @@ class Test_PoolManager(unittest.TestCase):
     def test_pool_map_without_setting_order(self):
         inputs = range(40)
         self.assertEqual(PoolManager(lambda x: x + 10).map(inputs), [x+10 for x in inputs])
+
+    def test_async_map(self):
+        with PoolManager(lambda x: x*2) as pool:
+            pool.put_async(range(40))
+            self.assertEqual(set(pool.getall()), {x*2 for x in range(40)})
