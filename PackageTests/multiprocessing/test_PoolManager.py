@@ -1,4 +1,4 @@
-import unittest
+import unittest, pytest
 
 from better.multiprocessing import PoolManager
 
@@ -37,3 +37,10 @@ class Test_PoolManager(unittest.TestCase):
         with PoolManager(lambda x: x*2) as pool:
             pool.put_async(range(40))
             self.assertEqual(set(pool.getall()), {x*2 for x in range(40)})
+
+    def test_map_fails(self):
+
+        with pytest.raises(ZeroDivisionError):
+            with PoolManager(lambda x : x/0) as pool:
+                for i in range(10): pool.put(i)
+                pool.getall()

@@ -83,7 +83,7 @@ class Communication:
         self._index = 0
         self._asyncThread = None
 
-    def put(self, item, block: bool = True, timeout: float = None) -> None:
+    def put(self, *items, block: bool = True, timeout: float = None) -> None:
         """ Place an item in the work stream, this will hold the inputs for the subprocesses. The method will block if
         the queue is full
 
@@ -92,11 +92,15 @@ class Communication:
             block (bool) = True: The placing attitude
             timeout (float) = None: A timeout for trying to place item 
         """
-        self.sendQueue.put((self._index, item), block=block, timeout=timeout)
+        if len(items) < 1: raise TypeError("put method must take at least one argument")
+        if len(items) == 1: items = items[0]
+        else: items = tuple(items)
+
+        self.sendQueue.put((self._index, items), block=block, timeout=timeout)
         self.active += 1
         self._index += 1
 
-    def put_async(self, iterable):
+    def put_async(self, iterable): # TODO finish documentation for this
 
         def place(iterable):
             for item in iterable: self.put(item)
@@ -126,6 +130,7 @@ class Communication:
                 else:
                     # Collect the result - collect a value from the queue
                     index, value = self.returnQueue.get(block, timeout)
+                    if isinstance(value, Exception): raise value
                     if self._returnIndex == index:
                         # The returned item is the item to return
                         self._returnIndex += 1
@@ -137,6 +142,7 @@ class Communication:
 
             # Collect the first response and return it
             _, value = self.returnQueue.get(block, timeout)
+            if isinstance(value, Exception): raise value
             return value
         except Exception:
             self.active += 1
@@ -258,15 +264,18 @@ class PoolManager:
                     input_index, input_value = sub_input
 
                     # Run function with value and static arguments
-                    output = function(input_value, *static_args)
+                    if isinstance(input_value, tuple): output = function(*input_value, *static_args)
+                    else:                              output = function(input_value, *static_args)
 
                     # Return the result
                     returnQueue.put((input_index, output))
                 except StopIteration:
                     break
+                except Exception as e:
+                    returnQueue.put((input_index, e))
 
             if logPipe: logPipe[0].close()
-
+            threading.Event().wait()
         return pool_process
 
     def __exit__(self, a, b, c):
