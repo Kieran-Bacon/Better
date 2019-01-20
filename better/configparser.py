@@ -49,7 +49,7 @@ class ConfigParser(dict):
             if not hasattr(source, "readline"):
                 raise ValueError("Source is invalid, requirement for readline function")
 
-            self._parseIO(source)
+            self.parseIO(source)
 
     def read(self, filepath: str):
         """ Read the contents of a file using the filepath provided, parse the contents and update the config with its
@@ -62,7 +62,7 @@ class ConfigParser(dict):
             IOError: Any error that can be raises by the 'open' builtin can be raised by this function
         """
         with open(filepath) as fh:
-            self._parseIO(fh)
+            self.parseIO(fh)
 
     def parse(self, configuration_string: str):
         """ Parse the provided string converting its contents into key values and updating this config with the values
@@ -70,9 +70,9 @@ class ConfigParser(dict):
         Parameters:
             configuration_string (str): The string to be parsed
         """
-        self._parseIO(io.StringIO(configuration_string))
+        self.parseIO(io.StringIO(configuration_string))
 
-    def _parseIO(self, iostream: io.IOBase):
+    def parseIO(self, iostream: io.IOBase):
         """ Processes the config string provided as a single configuration file. Add the contents the file to the
         instance
 
