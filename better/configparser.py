@@ -21,14 +21,13 @@ class ConfigParser(dict):
         ValueError: In the event that the source provided does not have a readline function
     """
 
-    _comments = re.compile(r"[#;].*")  # Identifies comments and all following characters
+    _rxComments = re.compile(r"[#;].*")  # Identifies comments and all following characters
 
-    _typeRegx = re.compile(r"\w+")
+    _rxEmptyLine = re.compile(r"^\s*$")
+    _rxWhiteSpace = re.compile(r"^\s*")
 
-    _emptyline = re.compile(r"^\s*$")
-    _leadingWhitespace = re.compile(r"^\s*")
-    _sectionRegx = re.compile(r"^\[(?P<header>.+)\]$")
-    _equalityRegx = re.compile(r"^(\((?P<type>[\w.]+)\)){0,1}(?P<name>.+)\s*[=:]\s*(?P<value>.*)$")
+    _rxSection = re.compile(r"^\[(?P<header>.+)\]$")
+    _rxEquality = re.compile(r"^(\((?P<type>[\w.]+)\)){0,1}(?P<name>.+)\s*[=:]\s*(?P<value>.*)$")
 
     @classmethod
     def fromFile(cls, filepath: str):
@@ -72,64 +71,31 @@ class ConfigParser(dict):
         """
         self.parseIO(io.StringIO(configuration_string))
 
-    def parseIO(self, iostream: io.IOBase):
-        """ Processes the config string provided as a single configuration file. Add the contents the file to the
-        instance
+    def parseIO(self, ioStream: io.IOBase):
 
-        Params:
-            config_str (str): The configuration file string
-        """
+        self._setupVariable()
+        scope_stack = []
 
-        scope_stack = []  # Structure to hold the sections currently 'opened' during parsing
-        variable = {
-            "lnumber": None,  # The line number the variable begins on
-            "scope": None,  # The scope of the variable
-            "type": None,  # The type of the variable if provided
-            "name": None,  # The name of the variable that is currently being processed
-            "value": None  # The current value of the variable (this may increase due to follow on lines)
-        }
-
-        def pushVariable(variable):
-            """ Push the information about the variable into the config at the position expressed by the scope stack """
-            if variable["name"] is None: return  variable# Nothing to do
-
-            if variable["type"] is not None and variable["type"] != "str":
-                try:
-                    variable["value"] = self._convertType(variable["type"], variable["value"])
-                except Exception as e:
-                    raise ValueError(
-                        "Invalid type definition of property {} on line {}".format(variable["lnumber"], variable["name"])
-                    ) from e
-
-            node = self._traverse(variable["scope"])
-            node[variable["name"].strip()] = variable["value"]
-
-            variable = {key: None for key in variable.keys()}
-            return variable
-
-
-        line_index = 0  # Line counter / Represnets the line number of the file being read
+        line_index = 0  # Line counter / represents the line number of the file being read
         while True:
             line_index += 1 # Increment the counter as we are about to read another line
 
-            line = iostream.readline()
+            line = ioStream.readline()
             if line == "": break  # The line has reached an end of file line (due to the lack of a new line character)
 
-            line = self._comments.sub("", line)  # Remove comments
-            if self._emptyline.search(line): continue  # Ignore empty lines
+            line = self._removeComments(line)  # Remove comments from the line
+            if self._rxEmptyLine.search(line): continue  # Ignore empty lines
 
             # Determine the scope of the line by examining the indentation of the line - update current scope stack
-            scope = len(self._leadingWhitespace.match(line).group(0).replace("\t", " "*self._indent))
+            scope = len(self._rxWhiteSpace.match(line).group(0).replace("\t", " "*self._indent))
             scope_stack = scope_stack[:scope+1]
 
             line = line.strip()  # Strip out all surrounding whitespace
 
-            print(scope_stack, line)
-
             # Check if the current line is opening up a section
-            match = self._sectionRegx.search(line)
+            match = self._rxSection.search(line)
             if match is not None:
-                variable = pushVariable(variable)
+                self._putVariable()
                 section_header = match.group("header")
 
                 # Collect the scope this section sits in - make sure to not overwrite any previous values
@@ -143,21 +109,81 @@ class ConfigParser(dict):
                 continue
 
             # The line is a configuration line - extract the information
-            match = self._equalityRegx.search(line)
+            match = self._rxEquality.search(line)
             if match is not None:  # The line is a key value pair
-                variable = pushVariable(variable)  # Push any previous variable
-                variable["lnumber"] = line_index
-                variable["scope"] = scope_stack.copy()
-                for group in ["type", "name", "value"]: variable[group] = match.group(group)
-            elif len(scope_stack) <= scope and variable["name"] is not None:  # The line extends the previous
-                variable["value"] += "\n" + line
-            else:  # The line is an empty key without a value
-                variable["name"] = line
-                variable["value"] = True
-                variable["scope"] = scope_stack.copy()
-                variable = pushVariable(variable)
+                self._putVariable()
+                self._vLine = line_index
+                self._vScope = scope_stack.copy()
+                self._vType = match.group("type")
+                self._vName = match.group("name").strip()
+                self._vValue = match.group("value").strip()
 
-        pushVariable(variable)
+            elif len(scope_stack) <= scope and self._vName is not None:  # The line extends the previous
+                self._vValue += "\n" + line
+
+            else:  # The line is an empty key without a value
+                self._vLine = line_index
+                self._vScope = scope_stack.copy()
+                self._vName = line
+                self._vValue = True
+                self._putVariable()
+        self._putVariable()
+
+    def _setupVariable(self):
+        self._vLine = None
+        self._vScope = None
+        self._vName = None
+        self._vValue = None
+        self._vType = None
+
+    def _putVariable(self):
+            """ Push the information about the currently staged variable into the config at the position expressed by
+            its mark on the scope stack
+            """
+            if self._vName is None: return # Nothing to do
+
+            if self._vType is not (None and "str"):
+                try:
+                    self._vValue = self._convertType(self._vType, self._vValue)
+                except Exception as e:
+                    raise ValueError("Invalid type definition: Line {} - {} = {}".format(self._vLine, self._vName, self._vValue)) from e
+            elif self._vValue and isinstance(self._vValue, str):
+                if self._vValue[0] in ["\"", "'"] and self._vValue[0] == self._vValue[-1]:
+                    self._vValue = self._vValue[1:-1]
+
+            node = self._traverse(self._vScope)
+            node[self._vName.strip()] = self._vValue
+
+            self._setupVariable()
+
+    def _removeComments(self, line: str) -> None:
+        """ Remove comments ensuring that a the comment symbols aren't removed if they are actually apart of the value
+
+        Params:
+            line (str): The line that is to have the comment striped out of it
+
+        Returns:
+            str: The line provided without line
+        """
+
+        comment = None
+        escape = False
+        openChar = None
+        for i, char in enumerate(line):
+            if char == "\\":
+                escape = True
+                continue
+
+            elif not escape and openChar and openChar == char: openChar = None  # Close the original opening char
+            elif openChar is None and not escape and char in ["\"", "'"]: openChar = char
+            elif openChar is None and char in ["#", ";"]:
+                comment = i
+                break
+
+            escape = False
+
+        if comment is not None: line = line[:comment]
+        return line
 
     def _traverse(self, path: [str]):
         """ Traverse the internal structure with the provided path and return the value located. All strings passed

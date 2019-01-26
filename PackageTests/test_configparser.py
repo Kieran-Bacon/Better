@@ -216,19 +216,27 @@ class Test_ConfigParser(unittest.TestCase):
         (int) k = 10, 2
         (range) yes = 10, 20, 5
         (uuid.uuid4) guid =
+        (list) b = one, two, three
+        (list) c =
+            one,
+            two, three,
+            four five
+            six
         """
         )
 
-        self.assertEqual(config.keys(), {"a", "names", "k", "yes", "guid"})
+        self.assertEqual(config.keys(), {"a", "names", "k", "yes", "guid", "b", "c"})
         self.assertEqual(config["a"], 10)
         self.assertEqual(config["names"], ["Kieran", "Martha", "Mumbo"])
         self.assertEqual(config["k"], int("10", 2))
         self.assertEqual(config["yes"], range(10, 20, 5))
+        self.assertEqual(config["b"], ["one", "two", "three"])
+        self.assertEqual(config["c"], ["one","two", "three", "four five\nsix"])
 
         import uuid
         self.assertIsInstance(config["guid"], uuid.UUID)
 
-    def test_equality_delimination_of_properties(self):
+    def test_equality_delimitation_of_properties(self):
 
         config = ConfigParser()
 
@@ -272,3 +280,28 @@ class Test_ConfigParser(unittest.TestCase):
         config = ConfigParser.fromFile(os.path.join(RESOURCES, "Quick Start.ini"))
         keys = [k for k in config["DEFAULT"]]
         self.assertSetEqual(set(keys), {'ServerAliveInterval', 'Compression', 'CompressionLevel', 'ForwardX11'})
+
+    def test_comments_dont_bother_values(self):
+
+        config = ConfigParser(r"""
+        a = value # This comment should exist as part of the value
+        b = "value # This one should though since its inside a quote"
+        c = 'just to clarify that #either quotes work'
+        d = "And we need to check that if the thing isn't within the quotes" # Then its totally ok
+        e = "We should also ensure that \" works as a method of escaping the quotes" # And this should still work
+        f = Lets go for multi-line comments ; shaking nervously
+         these should not be a problem right!? # One would hope
+         because that would be bad...
+        g = "Well this shouldn't  really work... # as this comment
+         is actually within the multi-line quote."
+        """)
+
+        self.assertDictEqual(config, {
+            "a": "value",
+            "b": "value # This one should though since its inside a quote",
+            "c": "just to clarify that #either quotes work",
+            "d": "And we need to check that if the thing isn't within the quotes",
+            "e": 'We should also ensure that \\" works as a method of escaping the quotes',
+            "f": "Lets go for multi-line comments\nthese should not be a problem right!?\nbecause that would be bad...",
+            "g": "Well this shouldn't  really work... # as this comment\nis actually within the multi-line quote."
+        })
