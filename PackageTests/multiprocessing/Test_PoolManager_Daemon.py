@@ -15,7 +15,7 @@ class Test_PoolManager(unittest.TestCase):
             while time.time() - start < length:
                 continue
 
-        with PoolManager(delay, processes=4, daemon=False) as pool:
+        with PoolManager(delay, size=4, daemon=False) as pool:
             for _ in range(4): pool.put(10)
 
             time.sleep(5)
