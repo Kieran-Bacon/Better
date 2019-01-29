@@ -11,12 +11,6 @@ logging.basicConfig(level=logging.DEBUG)
 
 class Test_PoolManager(unittest.TestCase):
 
-    class TestLogger(logging.Logger):
-
-        def handle(self, record):
-            if not hasattr(self, "_returned"): self._returned = []
-            self._returned.append(record.msg)
-
     def test_general_behaviour(self):
 
         with PoolManager(lambda x: x*2) as conn:
@@ -61,43 +55,7 @@ class Test_PoolManager(unittest.TestCase):
                 except SubprocessException as e:
                     raise e.raised
 
-    def test_pool_logging(self):
 
-        def sub_process(pid):
-            log = logging.getLogger("Subprocess")
-            log.info("{}".format(pid))
-
-        log = self.TestLogger("Subprocess", level=logging.INFO)
-
-        with PoolManager(sub_process, logger=log) as conn:
-            for i in range(8): conn.put(i)
-            conn.getAll()
-
-        self.assertEqual(set(log._returned), {str(x) for x in range(8)})
-
-    def test_pool_logging_hierarchy(self):
-
-        #logging.getLogger().propagate = True
-
-        def sub_processes(pid):
-            log = logging.getLogger("test.submodule")
-            log.info("{}".format(pid))
-
-        sub = self.TestLogger("test.submodule", level=logging.INFO)
-        testlog = self.TestLogger("test", level=logging.INFO)
-        notloggedlog = self.TestLogger("information", level=logging.INFO)
-
-        with PoolManager(sub_processes) as pool:
-
-            pool.addLogger(sub)
-            pool.addLogger(testlog)
-            pool.addLogger(notloggedlog)
-
-            for i in range(8): pool.put(i)
-            pool.getAll()
-
-        self.assertEqual(set(testlog._returned), {str(x) for x in range(8)})
-        self.assertFalse(hasattr(notloggedlog, "_returned"))
 
     def test_getall_doesnt_poll_into_oblivion(self):
 

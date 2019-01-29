@@ -63,7 +63,19 @@ class PoolManager:
         self._loggingPipe = None
         self._loggerThread = None
         self._loggers = {}
-        if logger: self.addLogger(logger)
+        if logger:
+            try:
+                if isinstance(logger, logging.Logger):  # Single logger object provided, add the logger
+                    self.addLogger(logger)
+                else:
+                    loggerIter = iter(logger)  # iterable provided, iterate through loggers and add each one.
+                    while True:
+                        try:
+                            self.addLogger(next(loggerIter))
+                        except StopIteration:
+                            break
+            except:
+                raise TypeError("Invalid type for argument logger: Takes Logger object or iterable yielding Loggers")
 
         self._processPool = []
         self._index = 0
@@ -79,7 +91,19 @@ class PoolManager:
         Params:
             logger (logging.Logger): The logger object that the pool is to pass log messaged too.
         """
-        if self._loggers is {}: self._loggers["PoolWorker"] = logging.getLogger("PoolWorker")
+
+        # Address usage errors
+        if self._state != self._STANDBY:
+            raise RuntimeError("Cannot add logger into child processes after the pool has been started")
+        if not isinstance(logger, logging.Logger):
+            raise TypeError("Invalid type of 'logger' argument passed")
+
+        # In the event of a logger being used, add in a capture method for the pool's processes themselves
+        if self._loggers is {}:
+            processLoggerName = "better.multiprocessing.PoolManager.PoolProcess"
+            self._loggers[processLoggerName] = logging.getLogger(processLoggerName)
+
+        # Add the logger into the fold
         self._loggers[logger.name] = logger
 
     def removeLogger(self, logger_name: (str, logging.Logger)) -> None:
@@ -352,7 +376,6 @@ class PoolManager:
 
     def __enter__(self):
         self.start()
-        self._state = self._RUNNING
         return self
 
     @staticmethod
@@ -400,4 +423,3 @@ class PoolManager:
     def __exit__(self, a, b, c):
         self.close()
         if self._daemon: self.terminate()  # All child daemons are to be destroyed
-        self._state = self._STANDBY
