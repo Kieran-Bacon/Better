@@ -5,7 +5,7 @@ import sys
 import time
 import logging
 
-from better.multiprocessing import PoolManager, SubprocessException
+from better.multiprocessing import PoolProcess, PoolManager, SubprocessException
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -55,9 +55,7 @@ class Test_PoolManager(unittest.TestCase):
                 except SubprocessException as e:
                     raise e.raised
 
-
-
-    def test_getall_doesnt_poll_into_oblivion(self):
+    def test_getall_does_not_poll_into_oblivion(self):
 
         def seppuku(*args):
             time.sleep(5)
@@ -81,3 +79,17 @@ class Test_PoolManager(unittest.TestCase):
             conn.clearTasks()
 
             self.assertEqual(set(conn.getAll()), {0, 2, 4, 6})
+
+    def test_PoolProcess_use(self):
+
+        class Worker(PoolProcess):
+
+            def __init__(self, arg1, arg2):
+                self.value = arg1 + arg2
+
+            def run(self, multiple):
+                return self.value*multiple
+
+        with PoolManager(Worker, static_args=[5,5]) as pool:
+            for i in range(10): pool.put(i)
+            self.assertEqual(set(pool.getAll()), {10*i for i in range(10)})

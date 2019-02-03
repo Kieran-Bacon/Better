@@ -21,10 +21,22 @@ class LogPipeThread(threading.Thread):
 
         while self.working:
             while self.receiveConnection.poll():
+
+                # Collect new log from sub-processes
                 record = self.receiveConnection.recv()
-                self.loggers[record.name].handle(record)
+
+                # Break up the record hierarchy - iterate through the hierarchy until a logger is found
+                hierarchy = record.name.split(".")
+                while hierarchy:
+                    name = ".".join(hierarchy)
+                    if name in self.loggers:
+                        self.loggers[name].handle(record)
+                        break
+                    hierarchy.pop()
 
     def close(self):
+        """ Update the threads working flag, this shall inform the thread to stop when it has finished any current work
+        """
         self.working = False
 
 class LogPipeHandler(logging.Handler):
@@ -38,4 +50,5 @@ class LogPipeHandler(logging.Handler):
         logging.Handler.__init__(self, level=logging.DEBUG)
         self.sendConnection = pipe[1]
 
-    def emit(self, record): self.sendConnection.send(record)
+    def emit(self, record):
+        self.sendConnection.send(record)

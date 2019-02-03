@@ -1,9 +1,9 @@
 import pytest, unittest
 
 import logging
-logging.basicConfig()
+import time
 
-from better.multiprocessing import PoolManager
+from better.multiprocessing import PoolProcess, PoolManager
 
 class Test_PoolManager_logging(unittest.TestCase):
 
@@ -13,10 +13,20 @@ class Test_PoolManager_logging(unittest.TestCase):
             if not hasattr(self, "_returned"): self._returned = []
             self._returned.append(record.msg)
 
+    class TestHandler(logging.Handler):
+
+        def __init__(self):
+            logging.Handler.__init__(self)
+
+        def emit(self, record):
+            if not hasattr(self, "_returned"): self._returned = []
+            self._returned.append(record.msg)
+
     def test_logging_basic(self):
 
         def sub_process(pid):
             log = logging.getLogger("Subprocess")
+            log.setLevel(logging.DEBUG)
             log.info("{}".format(pid))
 
         log = self.TestLogger("Subprocess", level=logging.INFO)
@@ -27,22 +37,43 @@ class Test_PoolManager_logging(unittest.TestCase):
 
         self.assertEqual(set(log._returned), {str(x) for x in range(8)})
 
+    def test_logging_basis_process(self):
+
+        class LoggingProcess(PoolProcess):
+
+            def __init__(self):
+                self.log = logging.getLogger("Subprocess")
+                self.log.setLevel(logging.DEBUG)
+
+            def run(self, pid):
+                self.log.info("{}".format(pid))
+
+        log = self.TestLogger("Subprocess", level=logging.INFO)
+
+        with PoolManager(LoggingProcess, logger=log) as pool:
+            for i in range(8): pool.put(i)
+            pool.getAll()
+
+        self.assertEqual(set(log._returned), {str(x) for x in range(8)})
+
     def test_logging_hierarchy(self):
 
         def sub_processes(pid):
             log = logging.getLogger("test.submodule")
+            log.setLevel(logging.DEBUG)
             log.info("{}".format(pid))
 
-        sub = self.TestLogger("test.submodule", level=logging.INFO)
-        testlog = self.TestLogger("test", level=logging.INFO)
-        notloggedlog = self.TestLogger("information", level=logging.INFO)
 
-        with PoolManager(sub_processes, logger=[sub, testlog, notloggedlog]) as pool:
+        higher = logging.getLogger("test")
+        higher.setLevel(logging.DEBUG)
+        higherHandle = self.TestHandler()
+        higher.addHandler(higherHandle)
+
+        with PoolManager(sub_processes, logger=higher) as pool:
             for i in range(8): pool.put(i)
             pool.getAll()
 
-        self.assertEqual(set(testlog._returned), {str(x) for x in range(8)})
-        self.assertFalse(hasattr(notloggedlog, "_returned"))
+        self.assertEqual(set(higherHandle._returned), {str(x) for x in range(8)})
 
     def test_logging_init(self):
 

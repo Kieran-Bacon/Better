@@ -1,4 +1,5 @@
 import os
+import inspect
 import time
 import logging
 import threading
@@ -8,6 +9,17 @@ from ._exceptions import SubprocessException
 from ._mplogging import LogPipeThread, LogPipeHandler
 
 log = logging.getLogger("better.multiprocessing.PoolManager")
+
+class PoolProcess:
+    """ A class to act as the interface for the users to create process classes. This allows a user to define
+    any environment variables during the running of the pool.
+    """
+
+    def __init__(self):
+        raise NotImplementedError("PoolProcess init has not been implemented")
+
+    def run(self, *args, **kwargs):
+        raise NotImplementedError("The run function for the PoolProcess has not been implemented")
 
 class PoolManager:
     """ Generate and manage interactions with a pool of processes
@@ -152,9 +164,8 @@ class PoolManager:
             block (bool) = True: The placing attitude
             timeout (float) = None: A timeout for trying to place item
         """
-        if len(items) < 1: raise TypeError("put method must take at least one argument")
-        if len(items) == 1: items = items[0]
-        else: items = tuple(items)
+        if items: items = tuple(items)
+        else: raise TypeError("put method must take at least one argument")
 
         self._put((self._index, items), block=block, timeout=timeout)
         self._active += 1
@@ -302,7 +313,7 @@ class PoolManager:
 
         self._daemon = self.daemon
 
-        for i in range(self._pool_size):
+        for _ in range(self._pool_size):
             poolProcess = mp.Process(
                 target=self._function,
                 args=(
@@ -325,8 +336,9 @@ class PoolManager:
             int: The number of alive processes within the pool
         """
         if time.time() - self._is_alive_check < 5:
-            self._is_alive_check = time.time()
-            return len(self._processPool)
+            return len(self._processPool) > 0
+
+        self._is_alive_check = time.time()
 
         curractedPool = []
         for process in self._processPool:
@@ -334,7 +346,7 @@ class PoolManager:
                 curractedPool.append(process)
 
         self._processPool = curractedPool
-        return len(self._processPool)
+        return len(self._processPool) > 0
 
     def joinAsync(self) -> None:
         """ Wait for the async put thread if it is present, to join """
@@ -349,7 +361,7 @@ class PoolManager:
         self._clearingTasks = True
         while not self._sendQueue.empty() or self._sendQueue.qsize():
             try:
-                self._sendQueue.get_nowait()
+                self._sendQueue.get(False)
                 self._active -= 1
             except mp.queues.Empty:
                 pass
@@ -365,9 +377,13 @@ class PoolManager:
 
         if self._asyncThread: self._asyncThread.join()
 
-        for _ in range(self._pool_size): self._sendQueue.put(StopIteration())
-        self._sendQueue.close()
-        self._sendQueue.join_thread()
+        self.clearTasks()
+        try:
+            for _ in range(self._pool_size): self._sendQueue.put(StopIteration(), False, 1)
+            self._sendQueue.close()
+            self._sendQueue.join_thread()
+        except:
+            pass
 
     def terminate(self):
         self.close()
@@ -379,7 +395,7 @@ class PoolManager:
         return self
 
     @staticmethod
-    def _user_function_wrapper(function):
+    def _user_function_wrapper(user_worker):
         def pool_process(loggingPipe: mp.Pipe, sendQueue: mp.Queue, returnQueue: mp.Queue, static_args: list):
 
             logPipe = None
@@ -395,6 +411,13 @@ class PoolManager:
                     logger.propagate = False
                     logger.addHandler(pipeHandler)
 
+            if inspect.isclass(user_worker) and issubclass(user_worker, PoolProcess):
+                worker = user_worker(*static_args)
+                function = worker.run
+                static_args = []  # Static arguments are emptied as it is not to be passed to the run function
+            else:
+                function = user_worker
+
             while True:
                 try:
                     # Collect an input for the subprocess - check whether process has been signalled to end
@@ -405,8 +428,7 @@ class PoolManager:
                     input_index, input_value = sub_input
 
                     # Run function with value and static arguments
-                    if isinstance(input_value, tuple): output = function(*input_value, *static_args)
-                    else:                              output = function(input_value, *static_args)
+                    output = function(*input_value, *static_args)
 
                     # Return the result
                     returnQueue.put((input_index, output))
