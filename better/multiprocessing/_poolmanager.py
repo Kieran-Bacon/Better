@@ -14,10 +14,6 @@ class PoolProcess:
     """ A class to act as the interface for the users to create process classes. This allows a user to define
     any environment variables during the running of the pool.
     """
-
-    def __init__(self):
-        raise NotImplementedError("PoolProcess init has not been implemented")
-
     def run(self, *args, **kwargs):
         raise NotImplementedError("The run function for the PoolProcess has not been implemented")
 
@@ -40,7 +36,7 @@ class PoolManager:
     _CLOSED = 30
 
     def __init__(self,
-        function: callable,
+        target: callable,
         *,
         size: int = os.cpu_count(),
         static_args: list = [],
@@ -69,7 +65,7 @@ class PoolManager:
         self._returnQueue = mp.Queue()
 
         # Wrap the user function
-        self._function = self._user_function_wrapper(function)
+        self._function = self._user_function_wrapper(target)
 
         # Setup logging
         self._loggingPipe = None
@@ -102,6 +98,10 @@ class PoolManager:
 
         Params:
             logger (logging.Logger): The logger object that the pool is to pass log messaged too.
+
+        Raises:
+            RuntimeError: In the event that the Pool has already been started.
+            TypeError: The object provided isn't a logger object
         """
 
         # Address usage errors
@@ -145,12 +145,9 @@ class PoolManager:
         if timeout is not None: start = time.time()
         while (self.isAlive() and (timeout is None or time.time() - start < timeout)):
             try:
-                self._sendQueue.put(item, block=False)
-                return
+                return self._sendQueue.put(item, block=False)
             except mp.queues.Full:
-                pass
-
-            if not block: break
+                if not block: raise
 
         if not self.isAlive(): raise RuntimeError("Empty pool")
         else: mp.TimeoutError("Timeout while attempting to place item: {}".format(item))
@@ -223,12 +220,11 @@ class PoolManager:
         while ((self._active and self.isAlive()) and
                (timeout is None or time.time() - start < timeout)):
             try:
-                item = self._returnQueue.get(False)
+                index, value = self._returnQueue.get(False)
                 self._active -= 1
-                return item
+                if isinstance(value, Exception): raise SubprocessException(index, value)
+                return index, value
             except mp.queues.Empty:
-                time.sleep(1)
-                log.info(".")
                 if not block: raise
 
         if not self._active: raise ValueError("Could not call get on items as there are no items to collect")
@@ -246,33 +242,30 @@ class PoolManager:
         Returns:
             object: The output of the pool function
         """
-        try:
-            if self._ordered:
-                if self._returnIndex in self._returnCache:
-                    # Collect the item from the cache - previously returned and stored to be placed in order
-                    value = self._returnCache[self._returnIndex]
-                    del self._returnCache[self._returnIndex]
+
+        if self._ordered:
+            if self._returnIndex in self._returnCache:
+                # Collect the item from the cache - previously returned and stored to be placed in order
+                value = self._returnCache[self._returnIndex]
+                del self._returnCache[self._returnIndex]
+                self._returnIndex += 1
+                return value
+            else:
+                # Collect the result - collect a value from the queue
+                index, value = self._get(block, timeout)
+                if self._returnIndex == index:
+                    # The returned item is the item to return
                     self._returnIndex += 1
                     return value
                 else:
-                    # Collect the result - collect a value from the queue
-                    index, value = self._get(block, timeout)
-                    if isinstance(value, Exception): raise SubprocessException(index, value)
-                    if self._returnIndex == index:
-                        # The returned item is the item to return
-                        self._returnIndex += 1
-                        return value
-                    else:
-                        # The returned item is yet to be asked for - store the item and attempt to get again
-                        self._returnCache[index] = value
-                        return self.get(block, timeout)
+                    # The returned item is yet to be asked for - store the item and attempt to get again
+                    self._returnCache[index] = value
+                    return self.get(block, timeout)  # Recursively attempt to collect item
 
+        else:
             # Collect the first response and return it
-            index, value = self._get(block, timeout)
-            if isinstance(value, Exception): raise SubprocessException(index, value)
+            _, value = self._get(block, timeout)
             return value
-        except Exception:
-            raise
 
     def getAll(self) -> [object]:
         """ Get all the items that have not already been returned, that were provided to be worked on
@@ -350,7 +343,9 @@ class PoolManager:
 
     def joinAsync(self) -> None:
         """ Wait for the async put thread if it is present, to join """
-        if self._asyncThread: self._asyncThread.join()
+        if self._asyncThread:
+            self._asyncThread.join()
+            self._asyncThread = None
 
     def join(self):
         self.close()
@@ -375,9 +370,9 @@ class PoolManager:
             self._loggerThread.close()
             self._loggerThread.join()
 
-        if self._asyncThread: self._asyncThread.join()
+        if self._asyncThread: self.joinAsync()
 
-        self.clearTasks()
+
         try:
             for _ in range(self._pool_size): self._sendQueue.put(StopIteration(), False, 1)
             self._sendQueue.close()
