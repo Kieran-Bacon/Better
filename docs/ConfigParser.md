@@ -218,11 +218,9 @@ time.sleep(config["Databse"]["timeout"])
 isinstance(config["Extreme"]["simple_document"], infogain.artefact.Document)  # True
 ```
 
-# Reference Manual
+## Reference Manual
 
-## better.ConfigParser
-
-#### better.ConfigParser(source: object = {}, *, indent_size: int = 4, delimiter: str = ",")
+### ConfigParser(source: object = {}, *, indent_size: int = 4, delimiter: str = ",")
 
 A `source` object can either be a dictionary, a string, or any instance that has as
 part of its interface the `readline()` method. This source is used to populate the
@@ -235,7 +233,7 @@ provided. This sequence can then been feed into the init of the type.
 
 If the `source` object provided is incorrect then the a `ValueError` shall be raised in response.
 
-## Instance Methods
+### Instance Methods
 
 #### read(filepath: str)
 
@@ -286,7 +284,7 @@ with open("./example.ini") as handler:
     config.parserIO(handler)
 ```
 
-## Class Methods
+### Class Methods
 
 #### fromFile(filepath: str)
 

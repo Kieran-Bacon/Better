@@ -1,2 +1,12 @@
 site_name: My Docs
 theme: readthedocs
+
+nav:
+- Welcome to Better: 'index.md'
+- better.ConfigParser: 'ConfigParser.md'
+
+- better.multiprocessing: 'multiprocessing-index.md'
+- better.multiprocessing.PoolManager: 'multiprocessing/PoolManager.md'
+
+- better.threading: 'threading-index.md'
+- better.threading.tfor: 'threading/tfor.md'
