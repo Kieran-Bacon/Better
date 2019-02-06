@@ -62,6 +62,19 @@ class Test_ThreadingFor(unittest.TestCase):
         @threading.dtfor(yields=True, ordered=True)
         def yields(item):
             return item*10
-        
+
         for result, expected in zip(yields(self.inputs), self.inputs):
             self.assertEqual(result, expected*10)
+
+    def test_class_threading(self):
+
+        class Example:
+
+            @staticmethod
+            @threading.dtfor(ordered=True)
+            def worker(item):
+                return item*2
+
+        e = Example()
+
+        self.assertEqual([2,4,6,8,10], e.worker([1,2,3,4,5]))
