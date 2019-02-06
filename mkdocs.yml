@@ -1,5 +1,6 @@
 site_name: Better
 theme: readthedocs
+docs_dir: ./docs
 nav:
 - Welcome to Better: 'index.md'
 - better.ConfigParser: 'ConfigParser.md'
