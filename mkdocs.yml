@@ -1,3 +1,9 @@
 site_name: Better
 theme: readthedocs
-
+nav:
+    - Welcome to better: 'index.md'
+    - ConfigParser: 'ConfigParser.md'
+    - Multiprocessing:
+        - better.multiprocessing.PoolManager: 'multiprocessing/PoolManager.md'
+    - Threading:
+        - better.threading.tfor: 'threading/tfor.md'
