@@ -1,4 +1,4 @@
-# Threading for
+# better.threading.tfor
 
 `tfor` is a function to allow the various iterations of a for loop to be conducted in a thread rather than a being executed in the main process. The idea is that work that requires IO operations with multiple files/sources can be conducted in a more efficient manner.
 

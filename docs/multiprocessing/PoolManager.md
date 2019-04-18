@@ -1,4 +1,4 @@
-# Getting started with the PoolManager
+# better.multiprocessing.PoolManager
 
 The pool manager is meant to provide a single interface for interacting with sub-processes and does so by exposing various interfaces common to a few multiprocessing objects. The three most notable  structures that it exhibits are the `Pool`, `Process` and the `Queue` objects.
 
