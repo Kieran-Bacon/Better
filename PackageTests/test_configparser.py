@@ -284,7 +284,7 @@ class Test_ConfigParser(unittest.TestCase):
     def test_comments_dont_bother_values(self):
 
         config = ConfigParser(r"""
-        a = value # This comment should exist as part of the value
+        a = value # This comment should not exist as part of the value
         b = "value # This one should though since its inside a quote"
         c = 'just to clarify that #either quotes work'
         d = "And we need to check that if the thing isn't within the quotes" # Then its totally ok
@@ -296,7 +296,7 @@ class Test_ConfigParser(unittest.TestCase):
          is actually within the multi-line quote."
         """)
 
-        self.assertDictEqual(config, {
+        self.assertEqual(config, {
             "a": "value",
             "b": "value # This one should though since its inside a quote",
             "c": "just to clarify that #either quotes work",
@@ -305,3 +305,70 @@ class Test_ConfigParser(unittest.TestCase):
             "f": "Lets go for multi-line comments\nthese should not be a problem right!?\nbecause that would be bad...",
             "g": "Well this shouldn't  really work... # as this comment\nis actually within the multi-line quote."
         })
+
+    def test_interpolationOfValues(self):
+        """ Assert that interpolated values can be extracted correctly """
+
+        config = ConfigParser(r"""
+        a = something
+        b = {a} else
+
+        [section]
+        c = example
+        d = {section:c} proven
+        """)
+
+        print(config._elements)
+
+        self.assertEqual(config, {
+            "a": "something",
+            "b": "something else",
+            "section": {
+                "c": "example",
+                "d": "example proven"
+            }
+        })
+
+    def test_interpolationEscaped(self):
+
+        config = ConfigParser(r"""
+        a = something
+        b = \{header:a:okay\} else
+        """)
+
+        print(config._elements)
+
+        self.assertEqual(config, {
+            "a": "something",
+            "b": r"\{header:a:okay\} else",
+        })
+
+    def test_interpolationWithType(self):
+
+        config = ConfigParser(r"""
+        a = 2,3,4
+        (list) b = {a}
+        """)
+
+        self.assertEqual(config["b"], ["2","3","4"])
+
+    def test_deepGet(self):
+
+        config = ConfigParser(r"""
+        basic = Still works
+        [1]
+            [2]
+                [3]
+                    key = value
+                    (int) number = 10
+        """)
+
+        # Show basics
+        self.assertEqual(config.get("basic"), "Still works")
+        self.assertEqual(config.get("not present basic", "This is fine"), "This is fine")
+
+        # Show traversal of keys
+        self.assertEqual(config.get("1:2:3:key"), "value")
+        self.assertEqual(config.get("1:2:3:number"), 10)
+        self.assertEqual(config.get("1:2:3:not present"), None)
+        self.assertEqual(config.get("1:2:3:not present", True), True)

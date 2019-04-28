@@ -1,6 +1,6 @@
 # better.ConfigParser
 
-A class to represent and interact with configuration files (the ini standard). This class performs all of the base functionality expressed within the configparser.ConfigParser package (except interpolation) however it makes use of the standard dictionary methods to make it consistent with dictionaries and to dramatically reduce its size.
+A class to represent and interact with configuration files (the ini standard). This class performs all of the base functionality expressed within the configparser.ConfigParser package plus type conversion, proper section indentation, assignments (of any type) and better interactions with internal python interfaces.
 
 ```ini
 [Simple Values]
@@ -10,11 +10,11 @@ spaces in values=allowed as well
 spaces around the delimiter = obviously
 you can also use : to delimit keys from values
 
-[All Values Are Strings]  # NO TRUE IF YOU TYPE CASE ;)
+[All Values Are (not all) Strings]  # NO TRUE IF YOU TYPE CASE
 values like this: 1000000
 or this: 3.14159265359
 are they treated as numbers? : no
-(int) values like this: 100000
+(int) values like this: 100000  # This is an example of a value cast
 was that treated as a number?: YES!
 integers, floats and booleans are held as: strings # Because they weren't cast
 can use the API to get converted values directly: FALSE (no need)
@@ -46,13 +46,11 @@ empty string value here =
             deeper than the first line
             of a value
         # Did I mention we can indent comments, too?
+
+[You can even interpolate values]
+like = {You can use comments:Sections can Be Indented:can_values_be_as_well}
+(list) and then cast = {Simple Values:key}
 ```
-
-
-The interface of the original `configparser.ConfigParser` has not been maintained as
-its functions became either obselete or varients were already implemented as a part
-of `dict`.
-
 
 An example:
 ```python
@@ -118,15 +116,19 @@ value = defaultSection.get("new")
 value = defaultSection.get("new", "fallback value")
 ```
 
-functions such as `getboolean`, `getint` and `getfloat` have not been implemented for a few reasons
+functions such as `getboolean`, `getint` and `getfloat` have not been implemented for a few reasons:
 
-* Too simple a wrapper, especially as you need to adhere to it explicitly
-* The method requires that the sections exists, no utility to get around this
-* The order of the look up is fixed and one cannot have control over this easily
-* Dictionaries come with functionality to help with this already
-* `better.ConfigParser` has multiple layers to sections and therefore is inconsitent
-with this behaviour
-* Values can be cast within the config.ini itself therefore avoiding this requirement
+**Too Simple a wrapper**: These methods are typically equivalent to calling the primitive type on the string value. `config.getint("key") == int(config["key"])` `config.getint("key", fallback=1.2) == int(config.get("key", 1.2))`
+
+**You can't be abstracted away**: Calling this method requires that the user knowns that the section and key exist with a value that can be cast to the target type. It also requires that the user must extract this value explicitly and the value must then be stored elsewhere.
+
+This is rather unhelpful when you want to be able to generically collect a section of non required key values that are to be unpacked into something else. Either the user is to unpack each item in turn and cast them with considerable bloat, or they just have to program to accept strings.
+
+**The order of lookup is fixed** The order of lookup is `vars` (optionally provided), the section, and then the defaultSect. This behaviour is already emulate-able via traditional mapping methods such that is as a result, actually rather restrictive as other orders are now not achievable.
+
+**True multiple layer implementation breaks these methods**: As a consequence of adding multiple layers to the config parser, these methods interfaces would have had to have had changed to allow the user to drive down through each layer. I felt that this deviation was already substantial and due the the previously described issues, determined to be unnecessary.
+
+**Logically where should items be cast**: Though likely a strongly types language's philosophy, it is believed that the optimal location for indicating the intended type of a variable is when it is defined, not when it is about to be used. Considering that the aim is to fail fast, and not let errors propagate, there is already a overhead of requiring someone to convert these values with this interface and this can entirely be mitigated if it was declared within the config. Which is now is.
 
 ```python
 # Base case
@@ -151,8 +153,7 @@ float({**{"new": "values"}, **exampleOne["Default"]}.get("new", 1.2))
 <class 'float'>
 ```
 
-Furthermore, all the base dictionary functions have been inherited so the interface is
-rich with its ability to interact with other dictionary objects
+Furthermore, all the base mapping methods have been inherited so the interface is rich with its ability to interact with other dictionary objects
 
 ```python
 betterConfig = better.ConfigParser()
@@ -167,6 +168,17 @@ copy = betterConfig.copy()
 
 betterConfig.setdefault("key")
 betterConfig.setdefault("keyvalue", "value")
+
+betterConfig.get("1", "example")
+
+config = better.ConfigParser(r"""
+1: value
+[nested]
+    key: value
+""")
+
+config.get("1")
+config.get("nested:key")
 ```
 
 ## Nested sections
@@ -196,9 +208,8 @@ end of test = 1000
 
 ## Type casting
 
-An extension of the base config parser is that the lines can support casting of
-key values into various types. This allows users to avoid the bloat of casting
-the values inline.
+An extension of the base config parser is that the lines can support casting of key values into various types. This allows users to avoid the bloat of casting the values inline.
+
 ```python
 config_ini = """
 [Database]
@@ -218,18 +229,48 @@ time.sleep(config["Databse"]["timeout"])
 isinstance(config["Extreme"]["simple_document"], infogain.artefact.Document)  # True
 ```
 
+## Interpolated values
+
+keys can have their values dynamically generated from previously defined keys within the configparser, allowing for setting reuse. The syntax allows for traversing multiple layers and must always be the absolute path to the key. Interpolated values can then be cast when they are interjected.
+
+The interpolation can be avoided by putting an escape character at the end of its scope. The escape character shall then be removed when parsed. If it is intended to be present then you'll have to add two (if you want two you'll have to add three and so on and so forth...).
+
+Values are resolved while it is being read, which results in implied depth of lookup as a value can come from a key who's value came from arbitrarily any number of previous keys. Realistically however, as these values are resolved immediately they are simply collecting a single value. This limits the users ability to dynamically generate references within the configparser to other keys. (but lets be honest - don't do that)
+
+```ini
+
+database_url = 'postgresql://kieran:bacon@localhost:5432/'
+
+[Accounts]
+database = {database_url}accounts
+(int) timeout = 30
+
+[Invoices]
+database = {database_url}invoices
+    [Nested Section]
+    value = 10
+
+[Example]
+(int) key = {Invoices:NestedSection:value}
+just the text = {database_url\}  # Escaped the interpolation
+```
+
 ## Reference Manual
 
-### ConfigParser(source: object = {}, *, indent_size: int = 4, delimiter: str = ",")
+### ConfigParser(source: object = {}, *, indent_size: int = 4, delimiter: str = ",", join: str = "\n", default: object = True)
 
 A `source` object can either be a dictionary, a string, or any instance that has as
 part of its interface the `readline()` method. This source is used to populate the
 ConfigParser during initialisation.
 
-The `indent_size` is the number of spaces a tab character is equivilent too
+The `indent_size` is the number of spaces a tab character is equivalent too
 
 A `delimiter` character is used to split values into sequences when a type has been
 provided. This sequence can then been feed into the init of the type.
+
+A `join` character is used to join setting values that are broken up onto new lines.
+
+A `default` value is generated for any key that doesn't have a value in its definition.
 
 If the `source` object provided is incorrect then the a `ValueError` shall be raised in response.
 
@@ -244,7 +285,7 @@ updates this objects values accordingly.
 filepath provided is incorrect
 
 If `read` is called on a `ConfigParser` that already has contents, overlapping
-keys shall have their values replaced, independant keys shall remain, and sections
+keys shall have their values replaced, independent keys shall remain, and sections
 shall be merged.
 
 ```python
@@ -257,7 +298,7 @@ config.read("./config.ini")
 Parse a `str` object and update the configurations values accordingly
 
 If `parse` is called on a `ConfigParser` that already has contents, overlapping
-keys shall have their values replaced, independant keys shall remain, and sections
+keys shall have their values replaced, independent keys shall remain, and sections
 shall be merged.
 
 ```python
@@ -282,6 +323,27 @@ config = better.ConfigParser()
 
 with open("./example.ini") as handler:
     config.parserIO(handler)
+```
+
+#### get(path: str, default: object = None)
+
+Behaviour is similar to that of the mutable mapping get function, where with a provided key, the function shall return its value if present, a default if not found and the default's default is None.
+
+ConfigParser's get method allows the user to access items from within the config by passing the joined list of keys with a delimiter of colons.
+
+```python
+config = ConfigParser(r"""
+basic = Still works
+[1]
+    [2]
+        [3]
+            key = value
+            (int) number = 10
+""")
+
+config.get("1:2:3:key")  # Returns "value"
+config.get("1:2:3:number")  # Returns 10
+config.get("1:2:3:not present", "A default value")  # Returns "A default value"
 ```
 
 ### Class Methods

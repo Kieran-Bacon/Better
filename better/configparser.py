@@ -1,24 +1,45 @@
 import io
 import re
+import collections
 
 class ConsistencyError(Exception):
-    """ A warning that the internal consistency of the config parser has broken down """
+    """ A warning that the internal consistency of the config parser has broken
+    down
+    """
     pass
 
-class ConfigParser(dict):
+class Setting:
+    """ A setting value within the a config file. A key value representation
+    that holds its scope
+    """
+
+    def __init__(self, scope: [str], line: int, name: str, value: object, type: str = None):
+        self.scope = scope
+        self.line = line
+        self.name = name
+        self.value = value
+        self.type = type
+
+        print(self.line, self.name, self.value, self.type)
+
+
+class ConfigParser(collections.abc.MutableMapping):
     """ This is an implementation of the global ini configuration format
 
-    Attributes:
-
     Parameters:
-        source (object): A source for the config parser, to allow it to initialize with values. Must be either a string
-            or an instance that implements the io.IOBase interface (essentially must have a readline method)
+        source (object): A source for the config parser, to allow it to
+            initialize with values. Must be either a string or an instance that
+            implements the io.IOBase interface (essentially must have a readline
+            method)
         *,
-        indent_size (int): The number of of spaces that have to be adjacent, such that they can be treated as a tab char
-        delimiter (str): The char(s) used to delimite sequences within the configuration file
+        indent_size (int): The number of of spaces that have to be adjacent,
+            such that they can be treated as a tab char
+        delimiter (str): The char(s) used to delimite sequences within the
+            configuration file
 
     Raises:
-        ValueError: In the event that the source provided does not have a readline function
+        ValueError: In the event that the source provided does not have a
+            readline function
     """
 
     _rxComments = re.compile(r"[#;].*")  # Identifies comments and all following characters
@@ -27,17 +48,22 @@ class ConfigParser(dict):
     _rxWhiteSpace = re.compile(r"^\s*")
 
     _rxSection = re.compile(r"^\[(?P<header>.+)\]$")
-    _rxEquality = re.compile(r"^(\((?P<type>[\w.]+)\)){0,1}(?P<name>.+)\s*[=:]\s*(?P<value>.*)$")
+    _rxEquality = re.compile(r"^(\((?P<type>[^\({}\)=:\n]+)\))?\s*(?P<name>[^\({}\)=:\n]+)\s*[=:]\s*(?P<value>.*)$")
+
+    _rxInterpolation = re.compile(r"{(.*)[^\\]}")
 
     @classmethod
     def fromFile(cls, filepath: str):
         with open(filepath) as fh:
             return cls(fh)
 
-    def __init__(self, source: object = {}, *, indent_size: int = 4, delimiter: str = ","):
+    def __init__(self, source: object = {}, *, indent_size: int = 4, delimiter: str = ",", join: str = "\n", default: object = True):
 
+        self._elements = {}  # The dictionary containing the content
         self._indent = indent_size
         self._delimiter = delimiter
+        self._join = join
+        self._default = default
 
         if isinstance(source, dict):
             self.update(source)
@@ -50,21 +76,64 @@ class ConfigParser(dict):
 
             self.parseIO(source)
 
+    def __repr__(self): return "<ConfigParser {}>".format(self._elements)
+    def __len__(self): return len(self._elements)
+    def __getitem__(self, key: object): return self._elements[key]
+    def __setitem__(self, key: object, value: object): self._elements[key] = value
+    def __delitem__(self, key: object): del self._elements[key]
+    def __iter__(self): return iter(self._elements)
+
+    def get(self, path: str, default: object = None) -> object:
+        """ Collect the value from within the config parser and return or if not
+        found return the default value
+
+        Params:
+            path (str): A semi-colon delimited path of key names
+            default (object) = None: The value to be returned if nothing is
+                found
+
+        returns:
+            object: Either the value at the location of path, or the default
+        """
+
+        if ":" in path:
+            # Split the path into its absolute path key names
+            absolute_path = path.split(":")
+
+            # Select the top level node as value to travel down
+            value = self._elements
+
+            # For each key attempt to traverse the node
+            for key in absolute_path:
+                if not isinstance(value, dict) or key not in value:
+                    # The value doesn't exist return the default provided
+                    return default
+
+                value = value[key]
+
+            # Return the value found after traversing the nodes
+            return value
+        else:
+            # Traditional behaviour
+            return super().get(path, default)
+
     def read(self, filepath: str):
-        """ Read the contents of a file using the filepath provided, parse the contents and update the config with its
-        values
+        """ Read the contents of a file using the filepath provided, parse the
+        contents and update the config with its values
 
         Parameters:
             filepath (str): The filepath to the configuration file.
 
         Raises:
-            IOError: Any error that can be raises by the 'open' builtin can be raised by this function
+            IOError: Any error that can be raises by the 'open' builtin can be
+                raised by this function
         """
         with open(filepath) as fh:
             self.parseIO(fh)
 
     def parse(self, configuration_string: str):
-        """ Parse the provided string converting its contents into key values and updating this config with the values
+        """ Parse the provided string converting its contents into key values
+        and updating this config with the values
 
         Parameters:
             configuration_string (str): The string to be parsed
@@ -73,91 +142,124 @@ class ConfigParser(dict):
 
     def parseIO(self, ioStream: io.IOBase):
 
-        self._setupVariable()
+        # The current indentation of the line - scope shall be greater than scope stack for variables being defined in
+        # a section.
+        scope = 0
+
+        # Holds current indentation for section headers - e.g ["header", None, None, "sub header"]. Scope shall reduce
+        # the scope stack.
         scope_stack = []
 
-        line_index = 0  # Line counter / represents the line number of the file being read
-        while True:
-            line_index += 1 # Increment the counter as we are about to read another line
+        # Currently examined setting container - holds name and points to value
+        setting = None
 
+        # Line counter / represents the line number of the file being read
+        line_index = 0
+
+        while True:
             line = ioStream.readline()
             if line == "": break  # The line has reached an end of file line (due to the lack of a new line character)
+
+            # Increment the line number
+            line_index += 1
 
             line = self._removeComments(line)  # Remove comments from the line
             if self._rxEmptyLine.search(line): continue  # Ignore empty lines
 
-            # Determine the scope of the line by examining the indentation of the line - update current scope stack
+            # Determine scope and reduce scope stack if less than section scope
             scope = len(self._rxWhiteSpace.match(line).group(0).replace("\t", " "*self._indent))
             scope_stack = scope_stack[:scope+1]
 
             line = line.strip()  # Strip out all surrounding whitespace
 
-            # Check if the current line is opening up a section
+            # Examine the syntax of the line and determine its intention
             match = self._rxSection.search(line)
             if match is not None:
-                self._putVariable()
+                # Section declaration - Open a new section in at this scope
+
+                # Push any currently open setting
+                self._addSetting(setting)
+
+                # Collect from the match object the section header
                 section_header = match.group("header")
 
-                # Collect the scope this section sits in - make sure to not overwrite any previous values
+                # Traverse the current parsed scope and add the section in if present
+                # Note: Taking care to ensure that a previously openned section isn't overwritten
                 node = self._traverse(scope_stack[:scope])
                 node[section_header] = node.get(section_header, {})
 
-                # Add the header to the stack updated section header
+                # Add the header to the stack updated section header - padding scope with None
                 scope_stack += [None]*((scope + 1) - len(scope_stack))
                 scope_stack[scope] = section_header
 
                 continue
 
-            # The line is a configuration line - extract the information
             match = self._rxEquality.search(line)
-            if match is not None:  # The line is a key value pair
-                self._putVariable()
-                self._vLine = line_index
-                self._vScope = scope_stack.copy()
-                self._vType = match.group("type")
-                self._vName = match.group("name").strip()
-                self._vValue = match.group("value").strip()
+            if match is not None:
+                # Setting Declaration - The line is a key value pair
 
-            elif len(scope_stack) <= scope and self._vName is not None:  # The line extends the previous
-                self._vValue += "\n" + line
+                # Add previous setting if set
+                self._addSetting(setting)
 
-            else:  # The line is an empty key without a value
-                self._vLine = line_index
-                self._vScope = scope_stack.copy()
-                self._vName = line
-                self._vValue = True
-                self._putVariable()
-        self._putVariable()
+                # Generate a setting to hold the information of this line just read in
+                setting = Setting(
+                    scope_stack.copy(),
+                    line_index,
+                    match.group("name").strip(),
+                    self._performInterpolation(match.group("value").strip()),
+                    match.group("type")
+                )
 
-    def _setupVariable(self):
-        self._vLine = None
-        self._vScope = None
-        self._vName = None
-        self._vValue = None
-        self._vType = None
+            elif len(scope_stack) <= scope and setting is not None:
+                # Setting Extension - Scope is greater than section header + no key value - assumed value extension
+                setting.value += self._join + self._performInterpolation(line)
 
-    def _putVariable(self):
+
+            else:
+                # Key Declaration - The line is a key without a value
+                self._addSetting(setting)
+
+                self._addSetting(
+                    Setting(
+                        scope_stack.copy(),
+                        line_index,
+                        line,
+                        self._default
+                    )
+                )
+
+                # Reset setting - ready for a new value
+                setting = None
+
+        # All lines read - push final setting
+        self._addSetting(setting)
+
+    def _addSetting(self, setting: Setting):
             """ Push the information about the currently staged variable into the config at the position expressed by
             its mark on the scope stack
             """
-            if self._vName is None: return # Nothing to do
+            if setting is None: return  # Nothing to add
 
-            if self._vType is not (None and "str"):
+            # None string type set for value - update the value before adding to self
+            if setting.type is not (None and "str"):
                 try:
-                    self._vValue = self._convertType(self._vType, self._vValue)
+                    setting.value = self._convertType(setting.type, setting.value)
                 except Exception as e:
-                    raise ValueError("Invalid type definition: Line {} - {} = {}".format(self._vLine, self._vName, self._vValue)) from e
-            elif self._vValue and isinstance(self._vValue, str):
-                if self._vValue[0] in ["\"", "'"] and self._vValue[0] == self._vValue[-1]:
-                    self._vValue = self._vValue[1:-1]
+                    raise ValueError(
+                        "Invalid type definition: Line {} - {} = {}".format(setting.line, setting.name, setting.value)
+                    ) from e
 
-            node = self._traverse(self._vScope)
-            node[self._vName.strip()] = self._vValue
+            elif isinstance(setting.value, str) and setting.value:
+                # Trim quotes from  string setting value if applicable
+                if setting.value[0] in ('"', "'") and setting.value[0] == setting.value[-1]:
+                    setting.value = setting.value[1:-1]
 
-            self._setupVariable()
+            # Insert the setting into self at the correct position
+            self._traverse(setting.scope)[setting.name] = setting.value
 
     def _removeComments(self, line: str) -> None:
-        """ Remove comments ensuring that a the comment symbols aren't removed if they are actually apart of the value
+        """ Remove comments ensuring that a the comment symbols aren't removed
+        if they are actually apart of the value
 
         Params:
             line (str): The line that is to have the comment striped out of it
@@ -186,32 +288,68 @@ class ConfigParser(dict):
         return line
 
     def _traverse(self, path: [str]):
-        """ Traverse the internal structure with the provided path and return the value located. All strings passed
-        must be the keys for dictionaries within the structure other than than the last item. The value returned can
-        be anything that exists at that point
+        """ Traverse the internal structure with the provided path and return
+        the value located. All strings passed must be the keys for dictionaries
+        within the structure other than than the last item. The value returned
+        can be anything that exists at that point
 
         Params:
-
+            path ([str]): A list of keys of the objects - the path through the
+                config to the value
 
         Raises:
-            KeyError - if the structure is does not resemble the path that has been provided
+            KeyError - if the structure is does not resemble the path that has
+                been provided
         """
 
-        node = self  # Root node
-        for key in path:    # Traverse the dictionary for the final item
-            if key is None: continue
+        # Root Node
+        node = self._elements
+
+        for key in path:
+            # Traverse the dictionary for the final item
+            if key is None: continue  # Ignore unused scope
             if not isinstance(node, dict): raise ConsistencyError("Path expected a greater depth during traversal")
             node = node[key]
 
         return node
 
+    def _performInterpolation(self, line: str) -> str:
+        """ Convert the references in the provided line into their value that
+        was previously defined, and not a key value within the config
+
+        Params:
+            line (str): The line to perform the interpolation on
+
+        Returns:
+            str: The line transformed to have its values
+        """
+
+        print("Line:", line)
+        # For each match in the line
+        for match in self._rxInterpolation.finditer(line):
+            path = match.group(0).strip("{}").split(":")  # Path/key of value
+            print(path)
+
+            value = self._traverse(path[:-1])[path[-1]]  # Extract the value for the path
+            print(value)
+
+            line = re.sub(match.group(0), str(value), line)  # Replace the original match with this value
+
+        # Return the transformed line
+        print(line)
+        return line
+
     def _convertType(self, variable_type: str, variable_value: str):
         """ Convert the value passed into the type provided
 
         Raises:
-            TypeError: In the event that the value is not acceptable for the type specified
-            Exception: Any other acception that may be caused by using a non standard type
+            TypeError: In the event that the value is not acceptable for the
+                type specified
+            Exception: Any other acception that may be caused by using a non
+                standard type
         """
+
+        print("Convert Type", variable_type, variable_value)
 
         if variable_value:
             variable_value = [x.strip() for x in variable_value.split(self._delimiter)]
@@ -240,3 +378,5 @@ class ConfigParser(dict):
             modules = variable_type.split(".")
             importClass = getattr(importlib.import_module(".".join(modules[:-1])), modules[-1])
             return importClass(*variable_value)
+
+    def copy(self): return self._elements.copy()

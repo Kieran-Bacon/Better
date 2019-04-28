@@ -8,7 +8,7 @@ requires = []
 setup(
     name='better',
     install_requires=requires,
-    version="0.1.2",
+    version="0.2.0",
     description="Extend packages include additional desired features",
     long_description=README,
     long_description_content_type="text/markdown",
