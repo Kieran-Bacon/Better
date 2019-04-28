@@ -53,6 +53,7 @@ like = {You can use comments:Sections can Be Indented:can_values_be_as_well}
 ```
 
 An example:
+
 ```python
 import configparser
 import better
@@ -224,7 +225,7 @@ port : 8071
 config = better.ConfigParser(config_ini)
 
 db_connect(**config["Database"])
-time.sleep(config["Databse"]["timeout"])
+time.sleep(config["Database"]["timeout"])
 
 isinstance(config["Extreme"]["simple_document"], infogain.artefact.Document)  # True
 ```
