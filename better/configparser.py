@@ -20,9 +20,6 @@ class Setting:
         self.value = value
         self.type = type
 
-        print(self.line, self.name, self.value, self.type)
-
-
 class ConfigParser(collections.abc.MutableMapping):
     """ This is an implementation of the global ini configuration format
 
@@ -324,19 +321,15 @@ class ConfigParser(collections.abc.MutableMapping):
             str: The line transformed to have its values
         """
 
-        print("Line:", line)
         # For each match in the line
         for match in self._rxInterpolation.finditer(line):
             path = match.group(0).strip("{}").split(":")  # Path/key of value
-            print(path)
 
             value = self._traverse(path[:-1])[path[-1]]  # Extract the value for the path
-            print(value)
 
             line = re.sub(match.group(0), str(value), line)  # Replace the original match with this value
 
         # Return the transformed line
-        print(line)
         return line
 
     def _convertType(self, variable_type: str, variable_value: str):
@@ -348,8 +341,6 @@ class ConfigParser(collections.abc.MutableMapping):
             Exception: Any other acception that may be caused by using a non
                 standard type
         """
-
-        print("Convert Type", variable_type, variable_value)
 
         if variable_value:
             variable_value = [x.strip() for x in variable_value.split(self._delimiter)]

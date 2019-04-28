@@ -119,7 +119,6 @@ class Test_ConfigParser(unittest.TestCase):
             }
         }
 
-        print(config)
         self.assertEqual(config, expected_result)
 
     def test_parse_string(self):
@@ -318,8 +317,6 @@ class Test_ConfigParser(unittest.TestCase):
         d = {section:c} proven
         """)
 
-        print(config._elements)
-
         self.assertEqual(config, {
             "a": "something",
             "b": "something else",
@@ -335,8 +332,6 @@ class Test_ConfigParser(unittest.TestCase):
         a = something
         b = \{header:a:okay\} else
         """)
-
-        print(config._elements)
 
         self.assertEqual(config, {
             "a": "something",
