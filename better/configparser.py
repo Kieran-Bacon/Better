@@ -1,3 +1,4 @@
+import os
 import io
 import re
 import collections
@@ -19,6 +20,9 @@ class Setting:
         self.name = name
         self.value = value
         self.type = type
+
+    def __repr__(self):
+        return "line {} in {}: ({}) {} = {}".format(self.line, self.scope, self.type, self.name, self.value)
 
 class ConfigParser(collections.abc.MutableMapping):
     """ This is an implementation of the global ini configuration format
@@ -49,12 +53,16 @@ class ConfigParser(collections.abc.MutableMapping):
 
     _rxInterpolation = re.compile(r"{(.*)[^\\]}")
 
+    _rxType = re.compile(r"^(?P<type>[\w\.]+)(<(?P<sub_type>[^>]+)>)?$")
+
+    _max_line_length = 120
+
     @classmethod
     def fromFile(cls, filepath: str):
         with open(filepath) as fh:
             return cls(fh)
 
-    def __init__(self, source: object = {}, *, indent_size: int = 4, delimiter: str = ",", join: str = "\n", default: object = True):
+    def __init__(self, source: object = {}, *, indent_size: int = 4, delimiter: str = ",", join: str = os.linesep, default: object = True):
 
         self._elements = {}  # The dictionary containing the content
         self._indent = indent_size
@@ -176,6 +184,7 @@ class ConfigParser(collections.abc.MutableMapping):
 
                 # Push any currently open setting
                 self._addSetting(setting)
+                setting = None
 
                 # Collect from the match object the section header
                 section_header = match.group("header")
@@ -231,6 +240,108 @@ class ConfigParser(collections.abc.MutableMapping):
         # All lines read - push final setting
         self._addSetting(setting)
 
+    def toFile(self, filepath: str) -> None:
+        """ Write the config to file
+
+        Params:
+            filepath (str): The path of to where the file should be generated
+        """
+
+        def write(handler: object, section: dict, depth: int = 0) -> None:
+            """ Write the section provided into the filehandler provided, and recursively write subsections into
+            the handler
+
+            Params:
+                handler (FileHandle): The handler to be written to
+                section (dict): The section to be written
+                depth (int) = 0: The depth of the section - none zero value implies that the section is a nested section
+            """
+
+            # Define containers for the two types of contents of the dictionary - separate the section
+            settings, sections = [], []
+
+            for key, value in section.items():
+                if isinstance(value, dict):
+                    sections.append((key, value))
+                else:
+                    settings.append((key, value))
+
+            # Process the settings of the section first - sort the keys before writing
+            for key, value in sorted(settings, key = lambda x: x[0]):
+
+                setting_depth = max(0, depth - 1)
+
+                # Define the variables type
+
+                setting_type, value = self._convertFromType(value)
+                if setting_type: setting_type = "({}) ".format(setting_type)
+
+                # Define the key for the setting
+                title = "{}{}{} = ".format(" "*(setting_depth*self._indent), setting_type, key)
+                lentit = len(title)
+
+                # Define the value string
+                lenval = len(value)
+
+                config_value = ""  # The manipulated value string
+                whitespace = " "*(1 + setting_depth*self._indent)
+
+                if lentit + lenval < self._max_line_length or self._join not in value:
+                    # The entire setting can fit on a single line - or it cannot be broken up
+                    config_value = value
+                else:
+                    # The setting is greater than the line limit -  examine the value for break points
+                    start, end = 0, self._max_line_length - lentit
+                    line_length = self._max_line_length - (setting_depth*self._indent + 1)
+
+                    while True:
+                        # Check whether we can break from the processing of the value
+                        if end > lenval:
+                            # The final window containing the rest of the value - write it and break
+                            config_value += value[start:]
+                            break
+
+                        # Idenfity whether there is a break point in the window
+                        splitPoint = value[start: end].rfind(self._join)
+
+                        if splitPoint == -1:
+                            # There was nowhere to split for this window, search for next split and add entire line
+                            nextSplit = value[end:].find(self._join)
+
+                            if nextSplit == -1:
+                                # There is not going to be another split, write the remaining line and end
+                                config_value += value[start:]
+                                break
+                            else:
+                                end += nextSplit
+                        else:
+                            end = start + splitPoint
+
+                        # Extract the line given by the start and end char and add it to the config line
+                        config_value += value[start: end] + os.linesep + whitespace
+
+                        # Update the start and end index - Add one to the previous end to jump over the break character
+                        start, end = end + 1, end + 1 + line_length
+
+                # Ensure that white space is handled
+                config_value = re.sub(
+                    "{}(?!{})".format(os.linesep, whitespace),
+                    "{}{}".format(os.linesep, whitespace),
+                    config_value
+                )
+
+                # Write the setting line
+                handler.write("".join((title, config_value, os.linesep)))
+
+            for name, section in sorted(sections, key = lambda x: x[0]):
+                # Write the nested sections - start by writing its name
+                handler.write("{}[{}]{}".format(" "*(depth*self._indent), name, os.linesep))
+
+                write(handler, section, depth + 1)
+
+        with open(filepath, "w") as handler:
+            write(handler, self)
+
     def _addSetting(self, setting: Setting):
             """ Push the information about the currently staged variable into the config at the position expressed by
             its mark on the scope stack
@@ -240,7 +351,7 @@ class ConfigParser(collections.abc.MutableMapping):
             # None string type set for value - update the value before adding to self
             if setting.type is not (None and "str"):
                 try:
-                    setting.value = self._convertType(setting.type, setting.value)
+                    setting.value = self._convertToType(setting.type, setting.value)
                 except Exception as e:
                     raise ValueError(
                         "Invalid type definition: Line {} - {} = {}".format(setting.line, setting.name, setting.value)
@@ -332,7 +443,7 @@ class ConfigParser(collections.abc.MutableMapping):
         # Return the transformed line
         return line
 
-    def _convertType(self, variable_type: str, variable_value: str):
+    def _convertToType(self, variable_type: str, variable_value: str):
         """ Convert the value passed into the type provided
 
         Raises:
@@ -342,32 +453,120 @@ class ConfigParser(collections.abc.MutableMapping):
                 standard type
         """
 
+        match = self._rxType.match(variable_type)
+        if match is None:
+            raise ValueError("Couldn't process type signature: {}".format(variable_type))
+
+
         if variable_value:
             variable_value = [x.strip() for x in variable_value.split(self._delimiter)]
+
+            if match.group("sub_type"):
+                variable_value = [self._convertToType(match.group("sub_type"), sub_val) for sub_val in variable_value]
         else:
             variable_value = []
 
-        if   variable_type == "list":         return variable_value
-        elif variable_type == "set":          return set(variable_value)
-        elif variable_type == "frozenset":    return frozenset(variable_value)
-        elif variable_type == "tuple":        return tuple(variable_value)
-        elif variable_type == "range":        return range(*[int(x) for x in variable_value])
+        if   match.group("type") == "list":         return variable_value
+        elif match.group("type") == "set":          return set(variable_value)
+        elif match.group("type") == "frozenset":    return frozenset(variable_value)
+        elif match.group("type") == "tuple":        return tuple(variable_value)
+        elif match.group("type") == "range":        return range(*[int(x) for x in variable_value])
 
-        elif variable_type == "bytes":        return bytes(*variable_value)
-        elif variable_type == "bytearray":    return bytearray(*variable_value)
+        elif match.group("type") == "bytes":        return bytes(*variable_value)
+        elif match.group("type") == "bytearray":    return bytearray(*variable_value)
 
-        elif variable_value == "bool":        return "True" == variable_value[0]
-        elif variable_type == "int":
+        elif match.group("type") == "bool":        return variable_value[0] == ("True" or "yes" or "1" or "on")
+        elif match.group("type") == "int":
             if len(variable_value) == 2: variable_value[1] = int(variable_value[1])
             return int(*variable_value)
-        elif variable_type == "float":        return float(*variable_value)
-        elif variable_type == "complex":      return float("".join(variable_value))
+        elif match.group("type") == "float":        return float(*variable_value)
+        elif match.group("type") == "complex":      return float("".join(variable_value))
 
         else:
             import importlib
 
-            modules = variable_type.split(".")
+            modules = match.group("type").split(".")
             importClass = getattr(importlib.import_module(".".join(modules[:-1])), modules[-1])
             return importClass(*variable_value)
+
+    @staticmethod
+    def _updateIterableType(base: str, iterable: object):
+        """ Check whether all the items within an iterable have the same type if so update the base to reflext that
+
+        Params:
+            base (str): The base type of the iterable
+            iterable (object): An object that can be iterated
+
+        Returns:
+            str: the base or the base and its subtype if all items have the same type
+        """
+        if len(iterable): # Assert that the iterable has length before checking its values
+            iterType = None
+            for item in iterable:
+
+                if iterType is None:
+                    # Record the type of the first item
+                    iterType = type(item).__name__
+                    continue
+
+                # break in the event that an item doesn't have the same type of any previous items
+                if type(item).__name__ != iterType:
+                    break
+            else:
+                return "{}<{}>".format(base, iterType) # If it never breaks, then all the items must have the same type
+
+        return base
+
+    def _convertFromType(self, value: object) -> str:
+        """ Convert the provided value into a string which would be acceptable as input to the config parser. This
+        method is to service the serialisation of a config.
+
+        Params:
+            value (object): The value that is to be stringified
+
+        Returns:
+            str: The config parser string representation of the object
+        """
+
+        if isinstance(value, str):
+            return "", value
+
+        # Assert the name of the type for casting
+        value_type = type(value).__name__
+
+        if isinstance(value, (int, bool, float)):
+            value_string = str(value)
+
+        elif isinstance(value, set):
+            value_type = self._updateIterableType(value_type, value)
+
+            if len(value): value_string = str(value).strip(r"{}")
+            else: value_string = ""
+
+        elif isinstance(value, frozenset):
+            value_type = self._updateIterableType(value_type, value)
+
+            if len(value): value_string = str(value)[11:-2]
+            else: value_string = ""
+
+        elif isinstance(value, list):
+            value_type = self._updateIterableType(value_type, value)
+            value_string = str(value).strip("[]")
+
+        elif isinstance(value, tuple):
+            value_type = self._updateIterableType(value_type, value)
+            value_string = str(value).strip("()")
+
+        elif isinstance(value, (bytes, bytearray)):
+            value_string = value.decode() + ", utf-8"
+
+        elif isinstance(value, complex):
+            value_string = str(value).strip("()")
+
+        else:
+            raise ValueError("Variable type could not be converted")
+
+        return value_type, value_string
+
 
     def copy(self): return self._elements.copy()

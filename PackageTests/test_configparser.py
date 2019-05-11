@@ -1,6 +1,7 @@
 import unittest
 
 import os
+import tempfile
 
 import better
 from better import ConfigParser
@@ -347,6 +348,24 @@ class Test_ConfigParser(unittest.TestCase):
 
         self.assertEqual(config["b"], ["2","3","4"])
 
+    def test_ParsingIssues(self):
+        """ A bug was discovered that a setting would be added twice when a new section was read as the section would
+        flush the setting to the config, and then reading the new setting in the section, the setting would again be
+        flushed. The section didn't reset the setting when it flushed - which is now does.
+
+        This was found because the type of the setting changes if it is cast and this lead to a non string trying to be
+        converted again and it throw a failure
+        """
+
+        try:
+            ConfigParser(r"""
+            (int) a = 100
+            [section]
+            something = else
+            """)
+        except:
+            self.fail("Could not parse the config correctly...")
+
     def test_deepGet(self):
 
         config = ConfigParser(r"""
@@ -367,3 +386,114 @@ class Test_ConfigParser(unittest.TestCase):
         self.assertEqual(config.get("1:2:3:number"), 10)
         self.assertEqual(config.get("1:2:3:not present"), None)
         self.assertEqual(config.get("1:2:3:not present", True), True)
+
+    def test_Subtyping(self):
+
+        config = ConfigParser("(list<int>) a = 0,1,2,3,4")
+
+        self.assertEqual(config["a"], list(range(5)))
+
+class TestSavingConfigs(unittest.TestCase):
+
+    def setUp(self):
+        self.config_path = os.path.abspath("config_parser_test.ini")
+
+    def tearDown(self):
+        os.remove(self.config_path)
+
+    def test_basicConfig(self):
+
+        string = os.linesep.join([
+            "a = 10",
+            "b = 20",
+            "c = 30"
+        ])
+
+        config = ConfigParser(string)
+        config.toFile(self.config_path)
+
+        with open(self.config_path, "r") as handler:
+            self.assertEqual(string.strip(), handler.read().strip())
+
+    def test_basicConfigSections(self):
+
+        string = os.linesep.join([
+            "a = 10",
+            "b = 20",
+            "c = 30",
+            "[section 1]",
+            "sec1-a = 100",
+            "    [section 1-1]",
+            "    sec1-1-a = 1000",
+            "[section 2]",
+            "sec2-a = 20",
+        ])
+
+        config = ConfigParser(string)
+        config.toFile(self.config_path)
+
+        with open(self.config_path, "r") as handler:
+            self.assertEqual(string.strip(), handler.read().strip())
+
+    def test_LongSettings(self):
+        config = {
+            "a": "something",
+            "b": os.linesep.join([
+                "a"*70,
+                "b"*70,
+                "c"*70,
+            ]),
+            "c": 100,
+            "section": {
+                "a": os.linesep.join([
+                    "a"*70,
+                    "b"*70,
+                    "c"*140,
+                ]),
+            }
+        }
+
+        config = ConfigParser(config)
+        config.toFile(self.config_path)
+
+
+        other = ConfigParser.fromFile(self.config_path)
+
+        self.assertEqual(config, other)
+
+    def test_TypeConversion(self):
+
+        config = ConfigParser({
+            "a": [1,2,3],
+            "b": 100
+        })
+
+        config_string = "(list<int>) a = 1, 2, 3" + os.linesep + "(int) b = 100"
+
+        config.toFile(self.config_path)
+
+        with open(self.config_path, "r") as handler:
+            self.assertEqual(config_string, handler.read().strip())
+
+    def test_ComplexConfig(self):
+
+        string = os.linesep.join([
+            "a = 10",
+            "b = 20",
+            "c = 30",
+            "[section 1]",
+            "sec1-a = 100",
+            "    [section 1-1]",
+            "    (list<int>) b = 1, 4, 8, 5, 9, 6, 4",
+            "    sec1-1-a = 1000",
+            "        [section 1-2-3]",
+            "        something = else",
+            "[section 2]",
+            "sec2-a = 20",
+        ])
+
+        config = ConfigParser(string)
+        config.toFile(self.config_path)
+
+        with open(self.config_path, "r") as handler:
+            self.assertEqual(string.strip(), handler.read().strip())
