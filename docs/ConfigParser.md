@@ -230,6 +230,12 @@ time.sleep(config["Database"]["timeout"])
 isinstance(config["Extreme"]["simple_document"], infogain.artefact.Document)  # True
 ```
 
+### 0.3.0 changes - iterable subtypes
+
+Iterable objects can now have their sub-items cast to a type as they are being read/written by using the `<>` notation following its type.
+
+`(list<int>) a = 1,2,3  # Generated shall be a list of intergers`
+
 ## Interpolated values
 
 keys can have their values dynamically generated from previously defined keys within the configparser, allowing for setting reuse. The syntax allows for traversing multiple layers and must always be the absolute path to the key. Interpolated values can then be cast when they are interjected.
@@ -345,6 +351,41 @@ basic = Still works
 config.get("1:2:3:key")  # Returns "value"
 config.get("1:2:3:number")  # Returns 10
 config.get("1:2:3:not present", "A default value")  # Returns "A default value"
+```
+
+#### toFile(filepath: str)
+
+Write the config out to file and preserve the types of the settings as best as can be.
+
+```python
+from better import ConfigParser
+
+config = ConfigParser("""
+
+a = 10
+(int) b = 20
+
+[section 1]
+(list<int>) values = 1, 2, 3, 4
+
+    [section 1-1]
+    another value = something
+""")
+
+config.toFile("testfile.ini")
+```
+
+```bash
+$ cat testfile.ini
+a = 10
+(int) b = 20
+
+[section 1]
+(list<int>) values = 1, 2, 3, 4
+
+    [section 1-1]
+    another value = something
+
 ```
 
 ### Class Methods
