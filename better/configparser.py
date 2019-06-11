@@ -337,7 +337,11 @@ class ConfigParser(collections.abc.MutableMapping):
                 # Write the nested sections - start by writing its name
                 handler.write("{}[{}]{}".format(" "*(depth*self._indent), name, os.linesep))
 
+                # Write the contents of the section
                 write(handler, section, depth + 1)
+
+                # Separate the sections
+                handler.write(os.linesep)
 
         with open(filepath, "w") as handler:
             write(handler, self)
