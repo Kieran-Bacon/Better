@@ -57,11 +57,6 @@ class ConfigParser(collections.abc.MutableMapping):
 
     _max_line_length = 120
 
-    @classmethod
-    def fromFile(cls, filepath: str):
-        with open(filepath) as fh:
-            return cls(fh)
-
     def __init__(self, source: object = {}, *, indent_size: int = 4, delimiter: str = ",", join: str = os.linesep, default: object = True):
 
         self._elements = {}  # The dictionary containing the content
@@ -129,23 +124,28 @@ class ConfigParser(collections.abc.MutableMapping):
         Parameters:
             filepath (str): The filepath to the configuration file.
 
+        Returns:
+            ConfigParser: self
+
         Raises:
             IOError: Any error that can be raises by the 'open' builtin can be
                 raised by this function
         """
         with open(filepath) as fh:
-            self.parseIO(fh)
+            self.parse(fh)
+
+        return self
 
     def parse(self, configuration_string: str):
-        """ Parse the provided string converting its contents into key values
-        and updating this config with the values
+        """ Parse the provided  object converting its contents into key values and updating this config with the values.
+        This function accepts strings or io objects that express a readline function.
 
         Parameters:
-            configuration_string (str): The string to be parsed
+            configuration_string (str / io.IO.base): The string to be parsed
         """
-        self.parseIO(io.StringIO(configuration_string))
 
-    def parseIO(self, ioStream: io.IOBase):
+        # Convert any string passed into an io stream
+        if isinstance(ioStream, str): ioStream = io.StringIO(ioStream)
 
         # The current indentation of the line - scope shall be greater than scope stack for variables being defined in
         # a section.
@@ -220,7 +220,6 @@ class ConfigParser(collections.abc.MutableMapping):
                 # Setting Extension - Scope is greater than section header + no key value - assumed value extension
                 setting.value += self._join + self._performInterpolation(line)
 
-
             else:
                 # Key Declaration - The line is a key without a value
                 self._addSetting(setting)
@@ -240,7 +239,9 @@ class ConfigParser(collections.abc.MutableMapping):
         # All lines read - push final setting
         self._addSetting(setting)
 
-    def toFile(self, filepath: str) -> None:
+        return self
+
+    def write(self, filepath: str) -> None:
         """ Write the config to file
 
         Params:
@@ -337,7 +338,12 @@ class ConfigParser(collections.abc.MutableMapping):
                 # Write the nested sections - start by writing its name
                 handler.write("{}[{}]{}".format(" "*(depth*self._indent), name, os.linesep))
 
+                # Write the contents of the section
                 write(handler, section, depth + 1)
+
+                # Separate the sections - Check that section contents doesn't already separate sections
+                if not any(isinstance(v, dict) for v in section.values()):
+                    handler.write(os.linesep)
 
         with open(filepath, "w") as handler:
             write(handler, self)
@@ -567,6 +573,5 @@ class ConfigParser(collections.abc.MutableMapping):
             raise ValueError("Variable type could not be converted")
 
         return value_type, value_string
-
 
     def copy(self): return self._elements.copy()
