@@ -63,7 +63,7 @@ class Test_ConfigParser(unittest.TestCase):
         self.assertEqual({**config, **other_dictionary}, expected_result)
 
     def test_fromFile(self):
-        config = ConfigParser.fromFile(os.path.join(RESOURCES, "example.ini"))
+        config = ConfigParser().read(os.path.join(RESOURCES, "example.ini"))
 
         expected_result = {
             'Simple Values': {
@@ -100,7 +100,7 @@ class Test_ConfigParser(unittest.TestCase):
         self.assertEqual(config, expected_result)
 
     def test_fromChallengingFile(self):
-        config = ConfigParser.fromFile(os.path.join(RESOURCES, "challenging.ini"))
+        config = ConfigParser().read(os.path.join(RESOURCES, "challenging.ini"))
 
         expected_result = {
             'Ultimate test': {
@@ -253,7 +253,7 @@ class Test_ConfigParser(unittest.TestCase):
 
     def test_configparser_Quick_Start_Example(self):
 
-        config = ConfigParser.fromFile(os.path.join(RESOURCES, "Quick Start.ini"))
+        config = ConfigParser().read(os.path.join(RESOURCES, "Quick Start.ini"))
 
         self.assertEqual(
             config,
@@ -277,7 +277,7 @@ class Test_ConfigParser(unittest.TestCase):
         )
 
     def test_for_in_behaviour(self):
-        config = ConfigParser.fromFile(os.path.join(RESOURCES, "Quick Start.ini"))
+        config = ConfigParser().read(os.path.join(RESOURCES, "Quick Start.ini"))
         keys = [k for k in config["DEFAULT"]]
         self.assertSetEqual(set(keys), {'ServerAliveInterval', 'Compression', 'CompressionLevel', 'ForwardX11'})
 
@@ -410,7 +410,7 @@ class TestSavingConfigs(unittest.TestCase):
         ])
 
         config = ConfigParser(string)
-        config.toFile(self.config_path)
+        config.write(self.config_path)
 
         with open(self.config_path, "r") as handler:
             self.assertEqual(string.strip(), handler.read().strip())
@@ -425,12 +425,13 @@ class TestSavingConfigs(unittest.TestCase):
             "sec1-a = 100",
             "    [section 1-1]",
             "    sec1-1-a = 1000",
+            "",
             "[section 2]",
             "sec2-a = 20",
         ])
 
         config = ConfigParser(string)
-        config.toFile(self.config_path)
+        config.write(self.config_path)
 
         with open(self.config_path, "r") as handler:
             self.assertEqual(string.strip(), handler.read().strip())
@@ -454,10 +455,10 @@ class TestSavingConfigs(unittest.TestCase):
         }
 
         config = ConfigParser(config)
-        config.toFile(self.config_path)
+        config.write(self.config_path)
 
 
-        other = ConfigParser.fromFile(self.config_path)
+        other = ConfigParser().read(self.config_path)
 
         self.assertEqual(config, other)
 
@@ -470,7 +471,7 @@ class TestSavingConfigs(unittest.TestCase):
 
         config_string = "(list<int>) a = 1, 2, 3" + os.linesep + "(int) b = 100"
 
-        config.toFile(self.config_path)
+        config.write(self.config_path)
 
         with open(self.config_path, "r") as handler:
             self.assertEqual(config_string, handler.read().strip())
@@ -488,12 +489,13 @@ class TestSavingConfigs(unittest.TestCase):
             "    sec1-1-a = 1000",
             "        [section 1-2-3]",
             "        something = else",
+            "",
             "[section 2]",
             "sec2-a = 20",
         ])
 
         config = ConfigParser(string)
-        config.toFile(self.config_path)
+        config.write(self.config_path)
 
         with open(self.config_path, "r") as handler:
             self.assertEqual(string.strip(), handler.read().strip())

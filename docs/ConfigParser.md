@@ -264,96 +264,52 @@ just the text = {database_url\}  # Escaped the interpolation
 
 ## Reference Manual
 
-### ConfigParser(source: object = {}, *, indent_size: int = 4, delimiter: str = ",", join: str = "\n", default: object = True)
-
-A `source` object can either be a dictionary, a string, or any instance that has as
-part of its interface the `readline()` method. This source is used to populate the
-ConfigParser during initialisation.
-
-The `indent_size` is the number of spaces a tab character is equivalent too
-
-A `delimiter` character is used to split values into sequences when a type has been
-provided. This sequence can then been feed into the init of the type.
-
-A `join` character is used to join setting values that are broken up onto new lines.
-
-A `default` value is generated for any key that doesn't have a value in its definition.
-
-If the `source` object provided is incorrect then the a `ValueError` shall be raised in response.
-
-### Instance Methods
-
-#### read(filepath: str)
-
-Read the contents of a file using the filepath provided, parse the contents and
-updates this objects values accordingly.
-
-`read` shall raise any `IOError` exceptions that can be raised by `open`, if the
-filepath provided is incorrect
-
-If `read` is called on a `ConfigParser` that already has contents, overlapping
-keys shall have their values replaced, independent keys shall remain, and sections
-shall be merged.
+### class ConfigParser(collections.abc.MutableMapping)
 
 ```python
-config = ConfigParser()
-config.read("./config.ini")
+better.ConfigParser(
+    source: object = {},
+    *,
+    indent_size: int = 4,
+    delimiter: str = ",",
+    join: str = "\n",
+    default: object = True
+)
 ```
 
-#### parse(configuration_str: str)
+- **source**: The source object for the config parser, which can be either a string which shall be parsed or a dictionary as a seed config.
+- **indent_size**: the number of spaces a tab is to represent and the number of spaces to be used to indent when writing to file.
+- **delimiter**: The character used within the config that splits listable setting values.
+- **join**: The character used to join a multi-line setting value.
+- **default**: The default value for a setting.
 
-Parse a `str` object and update the configurations values accordingly
-
-If `parse` is called on a `ConfigParser` that already has contents, overlapping
-keys shall have their values replaced, independent keys shall remain, and sections
-shall be merged.
+#### read
 
 ```python
-config_string = """
-[Section One]
-a = 10
-"""
-
-config = ConfigParser()
-config.parse(config_string)
+config.read(filepath: str) -> ConfigParser
 ```
 
-#### parseIO(iostream: io.IOBase)
+- **filepath**: Path to file to be read.
 
-Parse an iostream and convert and update the configurations values accordingly
+Read the contents of a file as a config definition and add its setting values into the config. Sections shall be merged, settings values shall be overwritten if there is a conflict.
 
-`AttributeError` shall be raised in the event that the `iostream` does not have a
-`readline()` method.
+Note: As setting values shall overwrite previously defined settings, if a setting is read who's name conflicts with a previously established section, the section shall be remove it.
+
+**Returns** `ConfigParser` to allow for chaining and single line allocation
 
 ```python
-config = better.ConfigParser()
+config = ConfigParser().read("file1.ini")
 
-with open("./example.ini") as handler:
-    config.parserIO(handler)
+config.read("another.ini").read("and another.ini")
 ```
 
-#### get(path: str, default: object = None)
-
-Behaviour is similar to that of the mutable mapping get function, where with a provided key, the function shall return its value if present, a default if not found and the default's default is None.
-
-ConfigParser's get method allows the user to access items from within the config by passing the joined list of keys with a delimiter of colons.
+#### write
 
 ```python
-config = ConfigParser(r"""
-basic = Still works
-[1]
-    [2]
-        [3]
-            key = value
-            (int) number = 10
-""")
-
-config.get("1:2:3:key")  # Returns "value"
-config.get("1:2:3:number")  # Returns 10
-config.get("1:2:3:not present", "A default value")  # Returns "A default value"
+config.write(filepath: str)
 ```
 
-#### toFile(filepath: str)
+- **filepath**: Path to the location of the new configuration file.
 
 Write the config out to file and preserve the types of the settings as best as can be.
 
@@ -372,7 +328,7 @@ a = 10
     another value = something
 """)
 
-config.toFile("testfile.ini")
+config.write("testfile.ini")
 ```
 
 ```bash
@@ -388,14 +344,52 @@ a = 10
 
 ```
 
-### Class Methods
-
-#### fromFile(filepath: str)
-
-Create a ConfigParser from a file location, the same as as the instance method
-`read()` however it doesn't require a ConfigParser to already have been made.
+#### parse
 
 ```python
-import better
-config = better.ConfigParser.fromFile("./config.ini")
+config.parse(configuration_string: str) -> ConfigParser
+```
+
+- **configuration_string**: A string representation of a config file.
+
+Read from some source configuration strings/settings and add them into the `ConfigParser`. `parse` can take either a string or an object that implements `readline()`. An `AttributeError` shall be raised if ever an object is passed that doesn't. The `readline()` shall need to return a empty string when it has exhausted its contents.
+Similar to read, parse shall add and update settings values accordingly
+
+**Returns** `ConfigParser` to allow for chaining of parse statements
+
+```python
+with open('file.ini', 'r') as handler:
+    config = ConfigParser().parse(handler).parse("Something = 10")
+
+config.parse("""
+something else = 20
+""")
+```
+
+#### get
+
+```python
+config.get(path: str, default: object = None) -> object
+```
+
+- **path**: A key for a section or settings who's value is to be returned. A path can be comprised of nested keys by delimitering with a ':'
+- **default**: A value to be returned in the event that the key doesn't exist within the config
+
+Collect a key's value from the config parser. `get` has equivalent behaviour to a dictionary's `get`, however, it exploits the restriction for colon's to be present within a settings name to allow for deep key value retrieval immediately.
+
+**Returns** `object` found at path given or the default value
+
+```python
+config = ConfigParser(r"""
+basic = Still works
+[1]
+    [2]
+        [3]
+            key = value
+            (int) number = 10
+""")
+
+config.get("1:2:3:key")  # Returns "value"
+config.get("1:2:3:number")  # Returns 10
+config.get("1:2:3:not present", "A default value")  # Returns "A default value"
 ```
