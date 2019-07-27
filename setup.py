@@ -6,9 +6,9 @@ with open(os.path.abspath(os.path.join(os.path.dirname(__file__), "README.md")),
 requires = []
 
 setup(
-    name='better',
+    name='betterpy',
     install_requires=requires,
-    version="0.3.0",
+    version="0.4.0",
     description="Extend packages include additional desired features",
     long_description=README,
     long_description_content_type="text/markdown",
