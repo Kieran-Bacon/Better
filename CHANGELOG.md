@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 - 2019/07/29 - Hotfix for parser
+
+- Corrected local variable ioStream which was not defined
+- ensured that tests pass
+
 ## 0.4.0 - 2019/07/27 - writing with ConfigParser
 
 - ConfigParser's interface has refined, redundant functions have been removed.
