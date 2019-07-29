@@ -68,13 +68,7 @@ class ConfigParser(collections.abc.MutableMapping):
         if isinstance(source, dict):
             self.update(source)
         else:
-            if isinstance(source, str):
-                source = io.StringIO(source)
-
-            if not hasattr(source, "readline"):
-                raise ValueError("Source is invalid, requirement for readline function")
-
-            self.parseIO(source)
+            self.parse(source)
 
     def __repr__(self): return "<ConfigParser {}>".format(self._elements)
     def __len__(self): return len(self._elements)
@@ -145,7 +139,15 @@ class ConfigParser(collections.abc.MutableMapping):
         """
 
         # Convert any string passed into an io stream
-        if isinstance(configuration_string, str): configuration_string = io.StringIO(configuration_string)
+        if isinstance(configuration_string, str):
+            ioStream = io.StringIO(configuration_string)
+
+        # Check that the source configuration is valid
+        elif hasattr(configuration_string, 'readline'):
+            ioStream = configuration_string
+
+        else:
+            raise ValueError("Source object doesn't implement a readline function - cannot parse")
 
         # The current indentation of the line - scope shall be greater than scope stack for variables being defined in
         # a section.
