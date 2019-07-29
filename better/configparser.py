@@ -145,7 +145,7 @@ class ConfigParser(collections.abc.MutableMapping):
         """
 
         # Convert any string passed into an io stream
-        if isinstance(ioStream, str): ioStream = io.StringIO(ioStream)
+        if isinstance(configuration_string, str): configuration_string = io.StringIO(configuration_string)
 
         # The current indentation of the line - scope shall be greater than scope stack for variables being defined in
         # a section.
