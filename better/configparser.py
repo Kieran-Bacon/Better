@@ -275,7 +275,6 @@ class ConfigParser(collections.abc.MutableMapping):
                 setting_depth = max(0, depth - 1)
 
                 # Define the variables type
-
                 setting_type, value = self._convertFromType(value)
                 if setting_type: setting_type = "({}) ".format(setting_type)
 
@@ -324,7 +323,7 @@ class ConfigParser(collections.abc.MutableMapping):
                         config_value += value[start: end] + os.linesep + whitespace
 
                         # Update the start and end index - Add one to the previous end to jump over the break character
-                        start, end = end + 1, end + 1 + line_length
+                        start, end = end + len(os.linesep), end + len(os.linesep) + line_length
 
                 # Ensure that white space is handled
                 config_value = re.sub(
@@ -347,7 +346,7 @@ class ConfigParser(collections.abc.MutableMapping):
                 if not any(isinstance(v, dict) for v in section.values()):
                     handler.write(os.linesep)
 
-        with open(filepath, "w") as handler:
+        with open(filepath, mode = "w", newline = '') as handler:
             write(handler, self)
 
     def _addSetting(self, setting: Setting):
