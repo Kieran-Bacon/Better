@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 - 2019/08/01 - Hotfix for ConfigParser.writer
+
+- Errors which meant that the write of config on windows would add to many \r has been resolved.
+
 ## 0.4.1 - 2019/07/29 - Hotfix for parser
 
 - Corrected local variable ioStream which was not defined
