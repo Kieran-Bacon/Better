@@ -273,7 +273,8 @@ better.ConfigParser(
     indent_size: int = 4,
     delimiter: str = ",",
     join: str = "\n",
-    default: object = True
+    default: object = True,
+    safe: bool = True
 )
 ```
 
@@ -282,14 +283,16 @@ better.ConfigParser(
 - **delimiter**: The character used within the config that splits listable setting values.
 - **join**: The character used to join a multi-line setting value.
 - **default**: The default value for a setting.
+- **safe**: Manner of reading contents - unsafe allows the execution of code
 
 #### read
 
 ```python
-config.read(filepath: str) -> ConfigParser
+config.read(filepath: str, *, safe: bool = None) -> ConfigParser
 ```
 
 - **filepath**: Path to file to be read.
+- **safe**: Toggle safe read on/off - defaults to parsers safe property
 
 Read the contents of a file as a config definition and add its setting values into the config. Sections shall be merged, settings values shall be overwritten if there is a conflict.
 
@@ -347,10 +350,11 @@ a = 10
 #### parse
 
 ```python
-config.parse(configuration_string: str) -> ConfigParser
+config.parse(configuration_string: str, *, safe: bool = None) -> ConfigParser
 ```
 
 - **configuration_string**: A string representation of a config file.
+- **safe**: Toggle safe read on/off - defaults to parsers safe property
 
 Read from some source configuration strings/settings and add them into the `ConfigParser`. `parse` can take either a string or an object that implements `readline()`. An `AttributeError` shall be raised if ever an object is passed that doesn't. The `readline()` shall need to return a empty string when it has exhausted its contents.
 Similar to read, parse shall add and update settings values accordingly
