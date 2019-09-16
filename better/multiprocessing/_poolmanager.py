@@ -3,8 +3,10 @@ import inspect
 import time
 import logging
 import threading
+import typing
 import multiprocessing as mp
 
+from ._queue import Queue
 from ._exceptions import SubprocessException
 from ._mplogging import LogPipeThread, LogPipeHandler
 
@@ -40,7 +42,7 @@ class PoolManager:
         *,
         size: int = os.cpu_count(),
         static_args: list = [],
-        queue_size: int = "auto",
+        queue_size: int = None,
         logger: logging.Logger = None,
         ordered: bool = False,
         daemon: bool = False
@@ -54,15 +56,9 @@ class PoolManager:
         self.daemon = daemon
         self.static_args = static_args
 
-        # Setup the send and receive queues, and determine the queue size
-        if isinstance(queue_size, str):
-            if queue_size == "auto": size = self._pool_size*2
-            else: raise ValueError("Invalid value of queue size provided. ('auto', int)")
-        else:
-            size = queue_size
-
-        self._sendQueue = mp.Queue(size)
-        self._returnQueue = mp.Queue()
+        # Setup the send and receive queues - no limit on returning items
+        self._sendQueue = Queue(self._pool_size*2 if queue_size is None else queue_size)
+        self._returnQueue = Queue()
 
         # Wrap the user function
         self._function = self._user_function_wrapper(target)
@@ -72,18 +68,8 @@ class PoolManager:
         self._loggerThread = None
         self._loggers = {}
         if logger:
-            try:
-                if isinstance(logger, logging.Logger):  # Single logger object provided, add the logger
-                    self.addLogger(logger)
-                else:
-                    loggerIter = iter(logger)  # iterable provided, iterate through loggers and add each one.
-                    while True:
-                        try:
-                            self.addLogger(next(loggerIter))
-                        except StopIteration:
-                            break
-            except:
-                raise TypeError("Invalid type for argument logger: Takes Logger object or iterable yielding Loggers")
+            if isinstance(logger, logging.Logger): logger = [logger]
+            for log in logger: self.addLogger(log)
 
         self._processPool = []
         self._index = 0
@@ -111,7 +97,7 @@ class PoolManager:
             raise TypeError("Invalid type of 'logger' argument passed")
 
         # In the event of a logger being used, add in a capture method for the pool's processes themselves
-        if self._loggers is {}:
+        if not self._loggers:
             processLoggerName = "better.multiprocessing.PoolManager.PoolProcess"
             self._loggers[processLoggerName] = logging.getLogger(processLoggerName)
 
@@ -142,13 +128,17 @@ class PoolManager:
             mp.TimeoutError: A block timeout and an item could not be placed
         """
 
+        # Start measuring time taken to put item in the event that a timeout has been given
         if timeout is not None: start = time.time()
+
+        # While the processes are alive and time hasn't been exceeded, attempt to put item
         while (self.isAlive() and (timeout is None or time.time() - start < timeout)):
             try:
                 return self._sendQueue.put(item, block=False)
             except mp.queues.Full:
                 if not block: raise
 
+        # Only reached if criteria for while are false as other exceptions are not handled
         if not self.isAlive(): raise RuntimeError("Empty pool")
         else: mp.TimeoutError("Timeout while attempting to place item: {}".format(item))
 
@@ -214,15 +204,14 @@ class PoolManager:
             mp.TimeoutError: When the call exceeds the allowed specified time
         """
 
-        log.info("_get: attempting to get from return queue expected size {}".format(self._active))
-
         if timeout is not None: start = time.time()
         while ((self._active and self.isAlive()) and
                (timeout is None or time.time() - start < timeout)):
             try:
                 index, value = self._returnQueue.get(False)
                 self._active -= 1
-                if isinstance(value, Exception): raise SubprocessException(index, value)
+                if isinstance(value, (BaseException, Exception)):
+                    raise SubprocessException(index, value) from value
                 return index, value
             except mp.queues.Empty:
                 if not block: raise
@@ -273,7 +262,7 @@ class PoolManager:
         Returns:
             [object]: A list of the returned outcomes still within the pool
         """
-        while self._asyncThread and self._asyncThread.isAlive(): time.sleep(0.1)
+        while self._asyncThread and self._asyncThread.is_alive(): time.sleep(0.1)
         return [self.get() for _ in range(self._active)]
 
     def map(self, iterable) -> [object]:
@@ -328,7 +317,7 @@ class PoolManager:
         Returns:
             int: The number of alive processes within the pool
         """
-        if time.time() - self._is_alive_check < 5:
+        if time.time() - self._is_alive_check < 1:
             return len(self._processPool) > 0
 
         self._is_alive_check = time.time()
@@ -354,12 +343,13 @@ class PoolManager:
     def clearTasks(self) -> None:
         """ Clear the queue of tasks that have not yet been picked up by a pool processes """
         self._clearingTasks = True
-        while not self._sendQueue.empty() or self._sendQueue.qsize():
-            try:
-                self._sendQueue.get(False)
-                self._active -= 1
-            except mp.queues.Empty:
-                pass
+        with self._sendQueue:
+            while not self._sendQueue.empty():
+                try:
+                    value = self._sendQueue.get(False)
+                    self._active -= 1
+                except mp.queues.Empty:
+                    pass
         self._clearingTasks = False
 
     def close(self):
@@ -431,7 +421,7 @@ class PoolManager:
                     break
                 except MemoryError:
                     break
-                except Exception as e:
+                except (BaseException, Exception) as e:
                     returnQueue.put((input_index, e))
 
             if logPipe: logPipe[0].close()

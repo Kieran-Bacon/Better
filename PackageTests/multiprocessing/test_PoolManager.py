@@ -64,7 +64,7 @@ class Test_PoolManager(unittest.TestCase):
         with PoolManager(seppuku) as conn:
             conn.putAsync([None]*10)
 
-            with pytest.raises(RuntimeError):
+            with pytest.raises(SubprocessException):
                 conn.getAll()
 
     def test_clearTasks_correctly_dequeues(self):
@@ -74,11 +74,13 @@ class Test_PoolManager(unittest.TestCase):
             return value * 2
 
         with PoolManager(do_some_work, size=4) as conn:
-            for i in range(10): conn.put(i)
+            for i in range(10):
+                conn.put(i)
 
             conn.clearTasks()
 
-            self.assertEqual(set(conn.getAll()), {0, 2, 4, 6})
+            tasks = set(conn.getAll())
+            self.assertTrue(tasks.issubset({v*2 for v in range(10)}) and len(tasks) <= 4)
 
     def test_PoolProcess_use(self):
 
