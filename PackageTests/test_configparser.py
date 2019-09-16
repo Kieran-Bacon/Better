@@ -1,4 +1,5 @@
 import unittest
+import pytest
 
 import os
 import tempfile
@@ -499,3 +500,24 @@ class TestSavingConfigs(unittest.TestCase):
 
         with open(self.config_path, "r") as handler:
             self.assertEqual(string.strip(), handler.read().strip())
+
+class Test_ConfigParserSettings(unittest.TestCase):
+
+    def test_eval(self):
+
+        with pytest.raises(ValueError):
+            config = ConfigParser("(eval) a = [(1,2), (2,3)]")
+            self.assertEqual(config['a'], [(1,2), (2,3)])
+
+        with pytest.raises(ValueError):
+            config = ConfigParser("(eval) b = ['hello']")
+            self.assertEqual(config['b'], ['hello'])
+
+        config = ConfigParser("(eval) a = [(1,2), (2,3)]", safe=False)
+        self.assertEqual(config['a'], [(1,2), (2,3)])
+
+        config= ConfigParser().parse("(eval) b = ['hello']", safe=False)
+        self.assertEqual(config['b'], ['hello'])
+
+
+

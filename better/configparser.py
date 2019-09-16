@@ -57,13 +57,23 @@ class ConfigParser(collections.abc.MutableMapping):
 
     _max_line_length = 120
 
-    def __init__(self, source: object = {}, *, indent_size: int = 4, delimiter: str = ",", join: str = os.linesep, default: object = True):
+    def __init__(
+        self,
+        source: object = {},
+        *,
+        indent_size: int = 4,
+        delimiter: str = ",",
+        join: str = os.linesep,
+        default: object = True,
+        safe: bool = True
+    ):
 
         self._elements = {}  # The dictionary containing the content
         self._indent = indent_size
         self._delimiter = delimiter
         self._join = join
         self._default = default
+        self._safe = safe
 
         if isinstance(source, dict):
             self.update(source)
@@ -111,12 +121,14 @@ class ConfigParser(collections.abc.MutableMapping):
             # Traditional behaviour
             return super().get(path, default)
 
-    def read(self, filepath: str):
+    def read(self, filepath: str, *, safe: bool = None):
         """ Read the contents of a file using the filepath provided, parse the
-        contents and update the config with its values
+        contents and update the config with its values.
 
         Parameters:
             filepath (str): The filepath to the configuration file.
+            *,
+            safe (bool): Manner of content parsing. defaults to ConfigParsers safe property.
 
         Returns:
             ConfigParser: self
@@ -125,18 +137,24 @@ class ConfigParser(collections.abc.MutableMapping):
             IOError: Any error that can be raises by the 'open' builtin can be
                 raised by this function
         """
+
         with open(filepath) as fh:
-            self.parse(fh)
+            self.parse(fh, safe = safe)
 
         return self
 
-    def parse(self, configuration_string: str):
+    def parse(self, configuration_string: str, *, safe: bool = None):
         """ Parse the provided  object converting its contents into key values and updating this config with the values.
         This function accepts strings or io objects that express a readline function.
 
         Parameters:
             configuration_string (str / io.IO.base): The string to be parsed
+            *,
+            safe (bool): Manner of content parsing. defaults to ConfigParsers safe property.
         """
+        if safe is not None:
+            temp = self._safe
+            self._safe = safe
 
         # Convert any string passed into an io stream
         if isinstance(configuration_string, str):
@@ -240,6 +258,9 @@ class ConfigParser(collections.abc.MutableMapping):
 
         # All lines read - push final setting
         self._addSetting(setting)
+
+        if safe is not None:
+            self._safe = temp
 
         return self
 
@@ -465,6 +486,10 @@ class ConfigParser(collections.abc.MutableMapping):
         if match is None:
             raise ValueError("Couldn't process type signature: {}".format(variable_type))
 
+        settingType = match.group("type")
+        if settingType == 'eval':
+            if not self._safe: return eval(variable_value)
+            else: raise RuntimeError("Unsafe eval type present as type in config when config read is safe")
 
         if variable_value:
             variable_value = [x.strip() for x in variable_value.split(self._delimiter)]
@@ -474,26 +499,26 @@ class ConfigParser(collections.abc.MutableMapping):
         else:
             variable_value = []
 
-        if   match.group("type") == "list":         return variable_value
-        elif match.group("type") == "set":          return set(variable_value)
-        elif match.group("type") == "frozenset":    return frozenset(variable_value)
-        elif match.group("type") == "tuple":        return tuple(variable_value)
-        elif match.group("type") == "range":        return range(*[int(x) for x in variable_value])
+        if   settingType == "list":         return variable_value
+        elif settingType == "set":          return set(variable_value)
+        elif settingType == "frozenset":    return frozenset(variable_value)
+        elif settingType == "tuple":        return tuple(variable_value)
+        elif settingType == "range":        return range(*[int(x) for x in variable_value])
 
-        elif match.group("type") == "bytes":        return bytes(*variable_value)
-        elif match.group("type") == "bytearray":    return bytearray(*variable_value)
+        elif settingType == "bytes":        return bytes(*variable_value)
+        elif settingType == "bytearray":    return bytearray(*variable_value)
 
-        elif match.group("type") == "bool":        return variable_value[0] == ("True" or "yes" or "1" or "on")
-        elif match.group("type") == "int":
+        elif settingType == "bool":        return variable_value[0] == ("True" or "yes" or "1" or "on")
+        elif settingType == "int":
             if len(variable_value) == 2: variable_value[1] = int(variable_value[1])
             return int(*variable_value)
-        elif match.group("type") == "float":        return float(*variable_value)
-        elif match.group("type") == "complex":      return float("".join(variable_value))
+        elif settingType == "float":        return float(*variable_value)
+        elif settingType == "complex":      return float("".join(variable_value))
 
         else:
             import importlib
 
-            modules = match.group("type").split(".")
+            modules = settingType.split(".")
             importClass = getattr(importlib.import_module(".".join(modules[:-1])), modules[-1])
             return importClass(*variable_value)
 
