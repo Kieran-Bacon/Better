@@ -8,7 +8,7 @@ requires = []
 setup(
     name='betterpy',
     install_requires=requires,
-    version="0.4.0",
+    version="0.4.1",
     description="Extend packages include additional desired features",
     long_description=README,
     long_description_content_type="text/markdown",
