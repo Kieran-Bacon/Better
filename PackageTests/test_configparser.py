@@ -393,6 +393,21 @@ class Test_ConfigParser(unittest.TestCase):
 
         self.assertEqual(config["a"], list(range(5)))
 
+    def test_setStringTypeIssue(self):
+
+        config = ConfigParser(os.linesep.join([
+            "[section1]",
+            " (set<str>) tracked = '/path/to/somthing with spaces.txt'",
+            " (float) anotherValue = 123445"
+        ]))
+
+
+        config = ConfigParser(os.linesep.join([
+            "[section1]",
+            " (set<str>) tracked = '/path/to/somthing with spaces.txt', '/another/one.txt'",
+            " (float) anotherValue = 123445"
+        ]))
+
 class TestSavingConfigs(unittest.TestCase):
 
     def setUp(self):

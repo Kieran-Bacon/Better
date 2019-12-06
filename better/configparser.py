@@ -467,14 +467,15 @@ class ConfigParser(collections.abc.MutableMapping):
 
 
         if variable_value:
-            variable_value = [x.strip() for x in variable_value.split(self._delimiter)]
+            variable_value = [x.strip().strip('"').strip("'") for x in variable_value.split(self._delimiter)]
 
             if match.group("sub_type"):
                 variable_value = [self._convertToType(match.group("sub_type"), sub_val) for sub_val in variable_value]
         else:
             variable_value = []
 
-        if   match.group("type") == "list":         return variable_value
+        if   match.group("type") == "str":          return self._delimiter.join(variable_value)
+        elif match.group("type") == "list":         return variable_value
         elif match.group("type") == "set":          return set(variable_value)
         elif match.group("type") == "frozenset":    return frozenset(variable_value)
         elif match.group("type") == "tuple":        return tuple(variable_value)
