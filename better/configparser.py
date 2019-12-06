@@ -133,6 +133,9 @@ class ConfigParser(collections.abc.MutableMapping):
         Returns:
             ConfigParser: self
 
+        Returns:
+            ConfigParser: self
+
         Raises:
             IOError: Any error that can be raises by the 'open' builtin can be
                 raised by this function
