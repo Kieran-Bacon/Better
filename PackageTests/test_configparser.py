@@ -1,4 +1,5 @@
 import unittest
+import pytest
 
 import os
 import tempfile
@@ -393,6 +394,21 @@ class Test_ConfigParser(unittest.TestCase):
 
         self.assertEqual(config["a"], list(range(5)))
 
+    def test_setStringTypeIssue(self):
+
+        config = ConfigParser(os.linesep.join([
+            "[section1]",
+            " (set<str>) tracked = '/path/to/somthing with spaces.txt'",
+            " (float) anotherValue = 123445"
+        ]))
+
+
+        config = ConfigParser(os.linesep.join([
+            "[section1]",
+            " (set<str>) tracked = '/path/to/somthing with spaces.txt', '/another/one.txt'",
+            " (float) anotherValue = 123445"
+        ]))
+
 class TestSavingConfigs(unittest.TestCase):
 
     def setUp(self):
@@ -499,3 +515,24 @@ class TestSavingConfigs(unittest.TestCase):
 
         with open(self.config_path, "r") as handler:
             self.assertEqual(string.strip(), handler.read().strip())
+
+class Test_ConfigParserSettings(unittest.TestCase):
+
+    def test_eval(self):
+
+        with pytest.raises(ValueError):
+            config = ConfigParser("(eval) a = [(1,2), (2,3)]")
+            self.assertEqual(config['a'], [(1,2), (2,3)])
+
+        with pytest.raises(ValueError):
+            config = ConfigParser("(eval) b = ['hello']")
+            self.assertEqual(config['b'], ['hello'])
+
+        config = ConfigParser("(eval) a = [(1,2), (2,3)]", safe=False)
+        self.assertEqual(config['a'], [(1,2), (2,3)])
+
+        config= ConfigParser().parse("(eval) b = ['hello']", safe=False)
+        self.assertEqual(config['b'], ['hello'])
+
+
+
