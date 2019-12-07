@@ -4,6 +4,7 @@
 
 - Add eval as a type which allows the user to evaluate their settings to even more dynamic
 - Add safety methods to ensure that it is safe.
+- Included some fixes for the str type - included nested str types
 
 ## 0.4.1 - 2019/07/29 - Hotfix for parser
 
