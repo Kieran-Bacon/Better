@@ -495,14 +495,15 @@ class ConfigParser(collections.abc.MutableMapping):
             else: raise RuntimeError("Unsafe eval type present as type in config when config read is safe")
 
         if variable_value:
-            variable_value = [x.strip() for x in variable_value.split(self._delimiter)]
+            variable_value = [x.strip().strip('"').strip("'") for x in variable_value.split(self._delimiter)]
 
             if match.group("sub_type"):
                 variable_value = [self._convertToType(match.group("sub_type"), sub_val) for sub_val in variable_value]
         else:
             variable_value = []
 
-        if   settingType == "list":         return variable_value
+        if   settingType == "str":          return self._delimiter.join(variable_value)
+        elif settingType == "list":         return variable_value
         elif settingType == "set":          return set(variable_value)
         elif settingType == "frozenset":    return frozenset(variable_value)
         elif settingType == "tuple":        return tuple(variable_value)
